@@ -387,6 +387,24 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		}
 	}
 
+	$effect(() => {
+		if (typeof window !== 'undefined') {
+			if (!authChecking && !currentUser) {
+				const existingScript = document.querySelector('script[src*="chatbotai-five-phi.vercel.app/widget.js"]');
+				if (!existingScript) {
+					const s = document.createElement('script');
+					s.src = 'https://chatbotai-five-phi.vercel.app/widget.js';
+					s.setAttribute('data-bot-id', 'bot_hk7l2ol');
+					s.async = true;
+					document.body.appendChild(s);
+				}
+			} else if (currentUser) {
+				const widgetRoot = document.getElementById('ai-chatbot-widget-root');
+				if (widgetRoot) widgetRoot.remove();
+			}
+		}
+	});
+
 	onMount(() => {
 		checkAuth();
 
@@ -810,6 +828,12 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		document.body.removeChild(link);
 	}
 </script>
+
+<svelte:head>
+	{#if !currentUser}
+		<script src="https://chatbotai-five-phi.vercel.app/widget.js" data-bot-id="bot_hk7l2ol"></script>
+	{/if}
+</svelte:head>
 
 <div class="app-mobile-root">
 	{#if authChecking}
