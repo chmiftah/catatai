@@ -3,7 +3,7 @@ import { config } from '#lib/server/config.js';
 
 let cachedKey = null;
 
-function getKey() {
+export function getKey() {
 	if (cachedKey) return cachedKey;
 
 	const rawKey = (config.ENCRYPTION_KEY || '').trim();
@@ -21,6 +21,32 @@ function getKey() {
 	}
 
 	return cachedKey;
+}
+
+/**
+ * Mendapatkan daftar kunci dekripsi (kunci utama + fallback kunci turunan AUTH_SECRET).
+ * Hal ini memastikan data yang terenkripsi sebelum ENCRYPTION_KEY diset tetap bisa didekripsi dengan mulus.
+ */
+function getDecryptionKeys() {
+	const keys = [];
+	const primary = getKey();
+	if (primary) keys.push(primary);
+
+	// Fallback 1: turunan dari AUTH_SECRET
+	if (config.AUTH_SECRET) {
+		const authKey = crypto.createHash('sha256').update(config.AUTH_SECRET).digest();
+		if (!keys.some((k) => k.equals(authKey))) {
+			keys.push(authKey);
+		}
+	}
+
+	// Fallback 2: salt bawaan CatatAi
+	const defaultSaltKey = crypto.createHash('sha256').update('catatai-default-encryption-salt-2026').digest();
+	if (!keys.some((k) => k.equals(defaultSaltKey))) {
+		keys.push(defaultSaltKey);
+	}
+
+	return keys;
 }
 
 /**
@@ -54,6 +80,7 @@ export function encrypt(text) {
 /**
  * Dekripsi teks terenkripsi format enc:v1.
  * Jika teks masih format plaintext lama, dikembalikan apa adanya tanpa error (backward compatible).
+ * Mencoba kunci utama terlebih dahulu, lalu kunci fallback jika ada pergantian ENCRYPTION_KEY.
  */
 export function decrypt(text) {
 	if (text === null || text === undefined) return text;
@@ -68,19 +95,31 @@ export function decrypt(text) {
 	if (parts.length !== 3) return str;
 
 	const [ivHex, tagHex, cipherHex] = parts;
-
+	let iv, tag;
 	try {
-		const key = getKey();
-		const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
-		decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
-
-		let decrypted = decipher.update(cipherHex, 'hex', 'utf8');
-		decrypted += decipher.final('utf8');
-		return decrypted;
-	} catch (err) {
-		console.error('Gagal mendekripsi data:', err.message);
+		iv = Buffer.from(ivHex, 'hex');
+		tag = Buffer.from(tagHex, 'hex');
+	} catch {
 		return str;
 	}
+
+	const keys = getDecryptionKeys();
+	for (const key of keys) {
+		try {
+			const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+			decipher.setAuthTag(tag);
+
+			let decrypted = decipher.update(cipherHex, 'hex', 'utf8');
+			decrypted += decipher.final('utf8');
+			return decrypted;
+		} catch {
+			// Autentikasi AES-GCM gagal untuk kunci ini, coba kunci berikutnya di daftar keys
+			continue;
+		}
+	}
+
+	console.error('Gagal mendekripsi data: Kunci enkripsi tidak cocok untuk ciphertext ini');
+	return str;
 }
 
 /**

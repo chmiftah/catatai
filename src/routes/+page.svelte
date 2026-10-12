@@ -4577,10 +4577,10 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	}
 	.icon-red { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
 	.icon-green { background: #dcfce7; color: #059669; border: 1px solid #bbf7d0; }
-	.entry-core { flex: 1; }
-	.entry-row-top { display: flex; justify-content: space-between; align-items: center; }
-	.entry-merchant { font-weight: 700; font-size: 0.85rem; color: #231f1c; }
-	.entry-amount { font-weight: 800; font-size: 0.88rem; font-family: 'Outfit', sans-serif; }
+	.entry-core { flex: 1; min-width: 0; }
+	.entry-row-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+	.entry-merchant { font-weight: 700; font-size: 0.85rem; color: #231f1c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.entry-amount { font-weight: 800; font-size: 0.88rem; font-family: 'Outfit', sans-serif; white-space: nowrap; flex-shrink: 0; }
 	.entry-row-sub { font-size: 0.68rem; color: #7c746a; margin-top: 0.1rem; }
 
 	.search-and-export { display: flex; gap: 0.45rem; margin-bottom: 0.5rem; }
