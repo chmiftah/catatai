@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import { config } from '#lib/server/config.js';
 import { getDb } from '#lib/server/db.js';
 import { getAuthUser } from '#lib/server/auth.js';
+import { encrypt } from '#lib/server/crypto.js';
 
 export async function POST({ request, cookies }) {
 	try {
@@ -174,15 +175,19 @@ OUTPUT HARUS HANYA JSON MURNI TANPA MARKDOWN BACKTICKS, TANPA PENJELASAN DI LUAR
 			const t = parsed.transaksi;
 			const grandTotal = t.total > 0 ? t.total : Math.max(0, (Number(t.subtotal) || 0) + (Number(t.pajak) || 0) - (Number(t.diskon) || 0));
 
+			const encToko = encrypt(t.toko || '');
+			const encCatatan = encrypt(t.catatan || '');
+			const encGambarUrl = t.gambar_url ? encrypt(t.gambar_url) : null;
+
 			const [saved] = await sql`
 				INSERT INTO transaksi (
 					user_id, tipe, toko, tanggal, waktu, kategori, metode_bayar,
 					subtotal, pajak, diskon, total, gambar_url, catatan
 				) VALUES (
-					${user.id}, ${t.tipe || 'pengeluaran'}, ${t.toko || ''}, ${t.tanggal || todayStr}::date, 
+					${user.id}, ${t.tipe || 'pengeluaran'}, ${encToko}, ${t.tanggal || todayStr}::date, 
 					${t.waktu || timeStr}::time, ${t.kategori || 'Lainnya'}, ${t.metode_bayar || 'Tunai'},
 					${t.subtotal || grandTotal}, ${t.pajak || 0}, ${t.diskon || 0}, ${grandTotal}, 
-					${t.gambar_url || null}, ${t.catatan || ''}
+					${encGambarUrl}, ${encCatatan}
 				) RETURNING id
 			`;
 			savedId = saved.id;
@@ -193,11 +198,12 @@ OUTPUT HARUS HANYA JSON MURNI TANPA MARKDOWN BACKTICKS, TANPA PENJELASAN DI LUAR
 					const qty = Number(itm.qty) || 1;
 					const harga = Number(itm.harga_satuan) || 0;
 					const sub = Number(itm.subtotal) || (qty * harga);
+					const encNamaBarang = encrypt(itm.nama_barang);
 					await sql`
 						INSERT INTO transaksi_item (
 							transaksi_id, nama_barang, qty, harga_satuan, subtotal
 						) VALUES (
-							${saved.id}, ${itm.nama_barang}, ${qty}, ${harga}, ${sub}
+							${saved.id}, ${encNamaBarang}, ${qty}, ${harga}, ${sub}
 						)
 					`;
 				}

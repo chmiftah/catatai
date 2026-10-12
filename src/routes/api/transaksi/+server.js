@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db.js';
 import { getAuthUser } from '#lib/server/auth.js';
+import { encrypt, encryptTransaction, decryptTransaction, encryptItem } from '#lib/server/crypto.js';
 
 export async function GET({ url, cookies }) {
 	try {
@@ -17,7 +18,7 @@ export async function GET({ url, cookies }) {
 		const cari = url.searchParams.get('q');
 
 		// Ambil transaksi milik user yang sedang login
-		let list = await sql`
+		let rawList = await sql`
 			SELECT 
 				t.id, t.user_id, t.tipe, t.toko, t.tanggal::text as tanggal, t.waktu::text as waktu, 
 				t.kategori, t.metode_bayar, t.subtotal::float as subtotal, 
@@ -32,10 +33,21 @@ export async function GET({ url, cookies }) {
 				AND (${tanggal ? sql`t.tanggal = ${tanggal}::date` : sql`1=1`})
 				AND (${kategori ? sql`t.kategori = ${kategori}` : sql`1=1`})
 				AND (${tipe ? sql`t.tipe = ${tipe}` : sql`1=1`})
-				AND (${cari ? sql`(t.toko ILIKE ${'%' + cari + '%'} OR t.catatan ILIKE ${'%' + cari + '%'})` : sql`1=1`})
 			GROUP BY t.id
 			ORDER BY t.tanggal DESC, t.waktu DESC, t.id DESC
 		`;
+
+		// Dekripsi data transaksi di sisi aplikasi
+		let list = rawList.map(decryptTransaction);
+
+		// Filter pencarian teks toko/catatan di memori secara aman
+		if (cari && cari.trim()) {
+			const query = cari.toLowerCase().trim();
+			list = list.filter((t) => 
+				(t.toko && t.toko.toLowerCase().includes(query)) ||
+				(t.catatan && t.catatan.toLowerCase().includes(query))
+			);
+		}
 
 		// Rekap Agregasi Bulanan milik user yang sedang login
 		const statsList = await sql`
@@ -79,21 +91,21 @@ export async function GET({ url, cookies }) {
 			ORDER BY total DESC
 		`;
 
-		// Top 5 Toko / Merchant Terbanyak milik user
-		const topMerchant = await sql`
-			SELECT 
-				t.toko,
-				COALESCE(SUM(t.total), 0)::float as total,
-				COUNT(t.id)::int as count
-			FROM transaksi t
-			WHERE 
-				t.user_id = ${user.id}
-				AND t.toko != '' AND t.tipe = 'pengeluaran'
-				AND (${bulan ? sql`to_char(t.tanggal, 'YYYY-MM') = ${bulan}` : sql`1=1`})
-			GROUP BY t.toko
-			ORDER BY total DESC
-			LIMIT 5
-		`;
+		// Top 5 Toko / Merchant Terbanyak milik user (dihitung dari transaksi terdekripsi)
+		const merchantMap = {};
+		for (const t of rawList.map(decryptTransaction)) {
+			if (t.tipe === 'pengeluaran' && t.toko && t.toko.trim() !== '') {
+				const merchantName = t.toko.trim();
+				if (!merchantMap[merchantName]) {
+					merchantMap[merchantName] = { toko: merchantName, total: 0, count: 0 };
+				}
+				merchantMap[merchantName].total += Number(t.total) || 0;
+				merchantMap[merchantName].count += 1;
+			}
+		}
+		const topMerchant = Object.values(merchantMap)
+			.sort((a, b) => b.total - a.total)
+			.slice(0, 5);
 
 		const stats = statsList[0] || { total_pengeluaran: 0, total_pemasukan: 0, total_transaksi: 0 };
 		const saldo_bersih = (stats.total_pemasukan || 0) - (stats.total_pengeluaran || 0);
@@ -146,29 +158,35 @@ export async function POST({ request, cookies }) {
 		// Hitung total jika belum ada
 		const grandTotal = total > 0 ? total : Math.max(0, Number(subtotal) + Number(pajak) - Number(diskon));
 
-		// Insert ke transaksi dengan user_id terisolasi
+		// Enkripsi teks sensitif sebelum disimpan ke database
+		const encToko = encrypt(toko);
+		const encCatatan = encrypt(catatan);
+		const encGambarUrl = gambar_url ? encrypt(gambar_url) : null;
+
+		// Insert ke transaksi dengan user_id terisolasi dan data terenkripsi
 		const [trx] = await sql`
 			INSERT INTO transaksi (
 				user_id, tipe, toko, tanggal, waktu, kategori, metode_bayar,
 				subtotal, pajak, diskon, total, gambar_url, catatan
 			) VALUES (
-				${user.id}, ${tipe}, ${toko}, ${tanggal}::date, ${waktu}::time, ${kategori}, ${metode_bayar},
-				${subtotal}, ${pajak}, ${diskon}, ${grandTotal}, ${gambar_url}, ${catatan}
+				${user.id}, ${tipe}, ${encToko}, ${tanggal}::date, ${waktu}::time, ${kategori}, ${metode_bayar},
+				${subtotal}, ${pajak}, ${diskon}, ${grandTotal}, ${encGambarUrl}, ${encCatatan}
 			) RETURNING id
 		`;
 
-		// Insert items jika ada
+		// Insert items jika ada (nama_barang terenkripsi)
 		if (Array.isArray(items) && items.length > 0) {
 			for (const itm of items) {
 				if (!itm.nama_barang) continue;
 				const qty = Number(itm.qty) || 1;
 				const harga = Number(itm.harga_satuan) || 0;
 				const sub = Number(itm.subtotal) || (qty * harga);
+				const encNamaBarang = encrypt(itm.nama_barang);
 				await sql`
 					INSERT INTO transaksi_item (
 						transaksi_id, nama_barang, qty, harga_satuan, subtotal
 					) VALUES (
-						${trx.id}, ${itm.nama_barang}, ${qty}, ${harga}, ${sub}
+						${trx.id}, ${encNamaBarang}, ${qty}, ${harga}, ${sub}
 					)
 				`;
 			}

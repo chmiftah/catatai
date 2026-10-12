@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db.js';
 import { getAuthUser } from '#lib/server/auth.js';
+import { decryptTransaction, decryptItem } from '#lib/server/crypto.js';
 
 export async function GET({ params, cookies }) {
 	try {
@@ -33,7 +34,10 @@ export async function GET({ params, cookies }) {
 			ORDER BY id ASC
 		`;
 
-		return json({ success: true, transaksi: { ...trx, items } });
+		const decryptedTrx = decryptTransaction(trx);
+		const decryptedItems = (items || []).map(decryptItem);
+
+		return json({ success: true, transaksi: { ...decryptedTrx, items: decryptedItems } });
 	} catch (err) {
 		console.error('Error GET /api/transaksi/[id]:', err);
 		return json({ error: err.message || 'Gagal memuat detail transaksi' }, { status: 500 });

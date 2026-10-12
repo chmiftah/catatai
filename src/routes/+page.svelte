@@ -8,6 +8,7 @@
 	let authForm = $state({ email: '', nama: '', password: '' });
 	let authLoading = $state(false);
 	let authError = $state('');
+	let showPassword = $state(false);
 
 	// PROFILE MODAL
 	let showProfileModal = $state(false);
@@ -849,106 +850,359 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		</div>
 	{:else if !currentUser}
 		<!-- ==============================================
-		     VIEW: HALAMAN LOGIN & REGISTER
+		     VIEW: LANDING PAGE TWO-COLUMNS (INFO + LOGIN)
 		     ============================================== -->
-		<div class="auth-page-container">
-			<div class="auth-card-box">
-				<div class="auth-brand-head">
-					<div class="brand-gem-large">
-						<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-						</svg>
+		<div class="landing-page-wrap">
+			<!-- TOP NAVIGATION BAR -->
+			<header class="landing-nav-bar">
+				<div class="landing-nav-inner">
+					<div class="landing-nav-brand">
+						<div class="brand-gem-large">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+							</svg>
+						</div>
+						<div class="brand-logo-text">
+							<span class="logo-title">CatatAi</span>
+							<span class="logo-sub">Smart AI Bookkeeping</span>
+						</div>
 					</div>
-					<h1 class="auth-app-title">CatatAi</h1>
-					<p class="auth-app-desc">Pencatatan Keuangan Pintar & Scan Nota Berbasis AI</p>
-				</div>
 
-				<div class="auth-tabs-row">
-					<button 
-						type="button" 
-						class="auth-tab-btn {authMode === 'login' ? 'active' : ''}" 
-						onclick={() => { authMode = 'login'; authError = ''; }}
-					>
-						Masuk Akun
-					</button>
-					<button 
-						type="button" 
-						class="auth-tab-btn {authMode === 'register' ? 'active' : ''}" 
-						onclick={() => { authMode = 'register'; authError = ''; }}
-					>
-						Daftar Baru
-					</button>
-				</div>
-
-				{#if authError}
-					<div class="auth-error-banner">
-						<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-						<span>{authError}</span>
+					<div class="landing-nav-right">
+						<div class="landing-status-badge">
+							<span class="status-pulse-dot"></span>
+							<span>DeepSeek AI Vision Aktif</span>
+						</div>
+						<button 
+							type="button" 
+							class="nav-cta-btn" 
+							onclick={() => { 
+								authMode = 'register'; 
+								authError = ''; 
+								document.getElementById('auth-box-section')?.scrollIntoView({ behavior: 'smooth' }); 
+							}}
+						>
+							Daftar Akun Baru
+						</button>
 					</div>
-				{/if}
+				</div>
+			</header>
 
-				<form class="auth-form-stack" onsubmit={(e) => { e.preventDefault(); handleAuthSubmit(); }}>
-					{#if authMode === 'register'}
-						<div class="auth-field">
-							<label for="inp-auth-nama">Nama Lengkap</label>
-							<div class="auth-input-wrap">
-								<svg class="auth-input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-								<input 
-									id="inp-auth-nama" 
-									type="text" 
-									placeholder="Contoh: Budi Santoso" 
-									bind:value={authForm.nama} 
-									required 
-								/>
+			<!-- MAIN 2-COLUMN GRID -->
+			<main class="landing-main-container">
+				<div class="landing-grid-layout">
+					
+					<!-- ==========================================
+					     COLUMN 1: LANDING PAGE INFO & VALUE
+					     ============================					<!-- ==========================================
+					     COLUMN 1: LANDING PAGE INFO & VALUE
+					     ========================================== -->
+					<section class="landing-info-column">
+						
+						<!-- HERO BADGE -->
+						<div class="hero-tag-badge">
+							<span class="tag-sparkle">✨</span>
+							<span>Solusi Keuangan Pribadi & UMKM Berbasis AI</span>
+						</div>
+
+						<!-- HEADLINE & LEAD -->
+						<h1 class="landing-hero-title">
+							Catat Keuangan & Scan Bon <span class="accent-text-highlight">Semudah Kirim Chat</span>
+						</h1>
+						<p class="landing-hero-subtitle">
+							Tinggalkan spreadsheet rumit atau bon tercecer. Cukup kirim chat santai seperti di WhatsApp atau foto nota belanja, AI otomatis merapikan nominal, kategori, dan laporan keuangan Anda secara instan.
+						</p>
+
+						<!-- INTERACTIVE MOCKUP SHOWCASE (CHAT & STRUK SIMULATION) -->
+						<div class="landing-showcase-card">
+							<div class="showcase-card-header">
+								<div class="showcase-assistant-avatar">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
+										<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+									</svg>
+								</div>
+								<div class="showcase-assistant-info">
+									<div class="assistant-name">CatatAi Assistant</div>
+									<div class="assistant-status">
+										<span class="online-indicator"></span> DeepSeek AI Vision Online
+									</div>
+								</div>
+								<span class="showcase-mode-pill">Simulasi AI</span>
+							</div>
+
+							<div class="showcase-chat-flow">
+								<!-- Message 1: User Natural Text -->
+								<div class="chat-bubble-row user-row">
+									<div class="chat-mock-bubble user-bubble">
+										<p class="chat-text">Kopi latte 28rb dan croissant 35rb di Anomali bayar QRIS ☕🥐</p>
+										<span class="chat-time">13:10 ✓✓</span>
+									</div>
+								</div>
+
+								<!-- Message 2: AI Bot Response -->
+								<div class="chat-bubble-row bot-row">
+									<div class="chat-mock-bubble bot-bubble">
+										<div class="bot-badge-tag">
+											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+											Pengeluaran Dicatat: <strong class="text-danger">&nbsp;Rp 63.000</strong>
+										</div>
+										<div class="bot-micro-meta">
+											<span class="category-chip">🍔 Makanan & Minuman</span>
+											<span class="chip-sub">Anomali Kopi • QRIS</span>
+										</div>
+									</div>
+								</div>
+
+								<!-- Message 3: AI Vision Struk Tag -->
+								<div class="chat-bubble-row bot-row">
+									<div class="chat-mock-bubble bot-bubble receipt-banner-bubble">
+										<div class="bot-badge-tag vision-tag">
+											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+											Scan Nota AI Vision
+										</div>
+										<p class="receipt-banner-text">
+											Foto struk <strong>Alfamart Kemang</strong> otomatis terbaca: <strong>4 item (Rp 89.200)</strong> masuk rekap bulanan!
+										</p>
+									</div>
+								</div>
 							</div>
 						</div>
-					{/if}
 
-					<div class="auth-field">
-						<label for="inp-auth-email">Alamat Email</label>
-						<div class="auth-input-wrap">
-							<svg class="auth-input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-							<input 
-								id="inp-auth-email" 
-								type="email" 
-								placeholder="nama@email.com" 
-								bind:value={authForm.email} 
-								required 
-							/>
+						<!-- CORE FEATURES HORIZONTAL PILLS -->
+						<div class="landing-features-compact-row">
+							<div class="compact-feature-pill">
+								<div class="pill-icon icon-emerald-soft">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+								</div>
+								<span>Chat Bahasa Alami</span>
+							</div>
+
+							<div class="compact-feature-pill">
+								<div class="pill-icon icon-amber-soft">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+								</div>
+								<span>Scan Bon DeepSeek AI</span>
+							</div>
+
+							<div class="compact-feature-pill">
+								<div class="pill-icon icon-indigo-soft">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+								</div>
+								<span>Dashboard & Ekspor CSV</span>
+							</div>
+
+							<div class="compact-feature-pill">
+								<div class="pill-icon icon-rose-soft">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+								</div>
+								<span>PWA Mobile Ready</span>
+							</div>
 						</div>
-					</div>
+					</section>
 
-					<div class="auth-field">
-						<label for="inp-auth-pwd">Password</label>
-						<div class="auth-input-wrap">
-							<svg class="auth-input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-							<input 
-								id="inp-auth-pwd" 
-								type="password" 
-								placeholder="Minimal 6 karakter" 
-								bind:value={authForm.password} 
-								required 
-								minlength="6"
-							/>
+					<!-- ==========================================
+					     COLUMN 2: LOGIN / REGISTER AUTH FORM
+					     ========================================== -->
+					<section class="landing-auth-column" id="auth-box-section">
+						<div class="auth-card-box sticky-auth-box">
+							
+							<!-- AUTH CARD HEADER -->
+							<div class="auth-brand-head">
+								<div class="brand-gem-large">
+									<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+									</svg>
+								</div>
+								<h2 class="auth-app-title">
+									{authMode === 'login' ? 'Masuk ke CatatAi' : 'Daftar Akun Baru'}
+								</h2>
+								<p class="auth-app-desc">
+									{authMode === 'login' 
+										? 'Masuk untuk mengakses asisten pencatatan & ringkasan keuangan Anda' 
+										: 'Buat akun dalam hitungan detik. Gratis & terenkripsi.'}
+								</p>
+							</div>
+
+							<!-- TAB SWITCHER: MASUK / DAFTAR -->
+							<div class="auth-tabs-row" role="tablist">
+								<button 
+									type="button" 
+									role="tab"
+									aria-selected={authMode === 'login'}
+									class="auth-tab-btn {authMode === 'login' ? 'active' : ''}" 
+									onclick={() => { authMode = 'login'; authError = ''; }}
+								>
+									Masuk Akun
+								</button>
+								<button 
+									type="button" 
+									role="tab"
+									aria-selected={authMode === 'register'}
+									class="auth-tab-btn {authMode === 'register' ? 'active' : ''}" 
+									onclick={() => { authMode = 'register'; authError = ''; }}
+								>
+									Daftar Baru
+								</button>
+							</div>
+
+							<!-- ERROR BANNER -->
+							{#if authError}
+								<div class="auth-error-banner" role="alert">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+									</svg>
+									<span>{authError}</span>
+								</div>
+							{/if}
+
+							<!-- AUTH FORM -->
+							<form class="auth-form-stack" onsubmit={(e) => { e.preventDefault(); handleAuthSubmit(); }}>
+								{#if authMode === 'register'}
+									<div class="auth-field">
+										<label for="inp-auth-nama">Nama Lengkap</label>
+										<div class="auth-input-wrap">
+											<svg class="auth-input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+												<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+											</svg>
+											<input 
+												id="inp-auth-nama" 
+												type="text" 
+												placeholder="Contoh: Budi Santoso" 
+												bind:value={authForm.nama} 
+												required 
+												autocomplete="name"
+											/>
+										</div>
+									</div>
+								{/if}
+
+								<div class="auth-field">
+									<label for="inp-auth-email">Alamat Email</label>
+									<div class="auth-input-wrap">
+										<svg class="auth-input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+										</svg>
+										<input 
+											id="inp-auth-email" 
+											type="email" 
+											placeholder="nama@email.com" 
+											bind:value={authForm.email} 
+											required 
+											autocomplete="email"
+										/>
+									</div>
+								</div>
+
+								<div class="auth-field">
+									<div class="field-label-split">
+										<label for="inp-auth-pwd">Password</label>
+										<button 
+											type="button" 
+											class="btn-toggle-pwd" 
+											onclick={() => { showPassword = !showPassword; }}
+											aria-label="Lihat atau sembunyikan password"
+										>
+											{showPassword ? 'Sembunyikan' : 'Tampilkan'}
+										</button>
+									</div>
+									<div class="auth-input-wrap">
+										<svg class="auth-input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+										</svg>
+										<input 
+											id="inp-auth-pwd" 
+											type={showPassword ? 'text' : 'password'} 
+											placeholder={authMode === 'register' ? 'Minimal 6 karakter' : 'Masukkan password'} 
+											bind:value={authForm.password} 
+											required 
+											minlength="6"
+											autocomplete={authMode === 'register' ? 'new-password' : 'current-password'}
+										/>
+									</div>
+								</div>
+
+								<button type="submit" class="btn-auth-submit" disabled={authLoading}>
+									{#if authLoading}
+										<span class="btn-spinner"></span>
+										<span>Memproses...</span>
+									{:else if authMode === 'register'}
+										<span>Daftar Akun CatatAi Gratis ✨</span>
+									{:else}
+										<span>Masuk ke Akun Anda 🚀</span>
+									{/if}
+								</button>
+							</form>
+
+							<!-- MODE TOGGLE HELPER LINK -->
+							<div class="auth-switch-helper">
+								{#if authMode === 'login'}
+									<span>Belum memiliki akun? </span>
+									<button 
+										type="button" 
+										class="link-switch-auth" 
+										onclick={() => { authMode = 'register'; authError = ''; }}
+									>
+										Daftar akun baru di sini
+									</button>
+								{:else}
+									<span>Sudah pernah mendaftar? </span>
+									<button 
+										type="button" 
+										class="link-switch-auth" 
+										onclick={() => { authMode = 'login'; authError = ''; }}
+									>
+										Masuk ke akun Anda
+									</button>
+								{/if}
+							</div>
+
+							<!-- SECURITY BADGE -->
+							<div class="auth-security-notice">
+								<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+								</svg>
+								<div class="security-text-box">
+									<strong>Data Terisolasi Penuh & Aman</strong>
+									<p>Setiap transaksi tersimpan di akun pribadi Anda dengan hashing sandi Scrypt & sesi cookie HTTP-Only.</p>
+								</div>
+							</div>
+
+							<!-- VALUE BULLETS BELOW CARD -->
+							<div class="auth-quick-perks">
+								<div class="perk-bullet">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+									<span>Gratis digunakan</span>
+								</div>
+								<div class="perk-bullet">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+									<span>Scan Nota DeepSeek AI</span>
+								</div>
+								<div class="perk-bullet">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+									<span>Bisa diinstal di HP (PWA)</span>
+								</div>
+							</div>
+
 						</div>
-					</div>
+					</section>
 
-					<button type="submit" class="btn-auth-submit" disabled={authLoading}>
-						{#if authLoading}
-							<span>Memproses...</span>
-						{:else if authMode === 'register'}
-							<span>Daftar Akun CatatAi</span>
-						{:else}
-							<span>Masuk ke CatatAi</span>
-						{/if}
-					</button>
-				</form>
-
-				<div class="auth-security-notice">
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-					<span>Data transaksi, struk nota, dan saldo Anda tersimpan terisolasi di akun pribadi.</span>
 				</div>
-			</div>
+			</main>
+
+			<!-- LANDING FOOTER -->
+			<footer class="landing-page-footer">
+				<div class="footer-inner">
+					<div class="footer-left">
+						<span class="footer-logo">CatatAi</span>
+						<span class="footer-copy">© 2026 CatatAi. Pencatatan Keuangan & Scan Nota Berbasis AI.</span>
+					</div>
+					<div class="footer-right">
+						<span>Privasi Terisolasi</span>
+						<span class="dot-sep">•</span>
+						<span>Didukung Neon DB & DeepSeek AI</span>
+					</div>
+				</div>
+			</footer>
 		</div>
 	{:else}
 		<!-- ==============================================
@@ -2340,27 +2594,369 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	.splash-title { font-size: 1.4rem; font-weight: 800; font-family: 'Outfit', sans-serif; color: #231f1c; }
 	.splash-sub { font-size: 0.85rem; color: #7c746a; }
 
-	/* AUTH VIEW (LOGIN & REGISTER) */
-	.auth-page-container {
+	/* ====================================================
+	   LANDING PAGE TWO-COLUMNS (INFO + LOGIN)
+	   ==================================================== */
+	.landing-page-wrap {
 		min-height: 100dvh;
+		background-color: #f5f0e8;
+		background-image: 
+			radial-gradient(circle at 12% 18%, rgba(16, 185, 129, 0.08) 0%, transparent 45%),
+			radial-gradient(circle at 88% 55%, rgba(217, 119, 6, 0.06) 0%, transparent 50%),
+			url("data:image/svg+xml,%3Csvg width='160' height='160' viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23706456' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round' opacity='0.08'%3E%3Cpath d='M16 26 h18 a2 2 0 0 1 2 2 v9 a9 9 0 0 1 -9 9 h-2 a9 9 0 0 1 -9 -9 v-9 a2 2 0 0 1 2 -2 z'/%3E%3Crect x='85' y='18' width='36' height='24' rx='4'/%3E%3Ccircle cx='124' cy='112' r='8'/%3E%3C/svg%3E");
+		display: flex;
+		flex-direction: column;
+	}
+
+	/* TOP NAVIGATION BAR */
+	.landing-nav-bar {
+		background: rgba(245, 240, 232, 0.92);
+		backdrop-filter: blur(14px);
+		-webkit-backdrop-filter: blur(14px);
+		border-bottom: 1px solid #e3dbce;
+		flex-shrink: 0;
+		padding: 0.55rem 1.5rem;
+		box-shadow: 0 1px 4px rgba(35, 31, 28, 0.03);
+	}
+	.landing-nav-inner {
+		max-width: 1240px;
+		margin: 0 auto;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+	.landing-nav-brand {
+		display: flex;
+		align-items: center;
+		gap: 0.65rem;
+	}
+	.brand-logo-text {
+		display: flex;
+		flex-direction: column;
+	}
+	.logo-title {
+		font-family: 'Outfit', sans-serif;
+		font-size: 1.25rem;
+		font-weight: 800;
+		color: #231f1c;
+		line-height: 1.1;
+		letter-spacing: -0.02em;
+	}
+	.logo-sub {
+		font-size: 0.68rem;
+		color: #7c746a;
+		font-weight: 600;
+	}
+	.landing-nav-right {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+	.landing-status-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		background: #e6f4ea;
+		border: 1px solid #b7e4c7;
+		color: #047857;
+		font-size: 0.72rem;
+		font-weight: 700;
+		padding: 0.3rem 0.7rem;
+		border-radius: 9999px;
+	}
+	.status-pulse-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: #10b981;
+		box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+		animation: pulseDot 2s infinite;
+	}
+	@keyframes pulseDot {
+		0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+		70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+		100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+	}
+	.nav-cta-btn {
+		background: #ffffff;
+		border: 1.5px solid #059669;
+		color: #059669;
+		font-weight: 700;
+		font-size: 0.78rem;
+		padding: 0.35rem 0.85rem;
+		border-radius: 8px;
+		transition: all 0.15s ease;
+		cursor: pointer;
+	}
+	.nav-cta-btn:hover {
+		background: #059669;
+		color: #ffffff;
+		box-shadow: 0 3px 8px rgba(5, 150, 105, 0.25);
+	}
+
+	/* MAIN 2-COLUMN LAYOUT */
+	.landing-main-container {
+		flex: 1;
+		min-height: 0;
+		max-width: 1240px;
+		width: 100%;
+		margin: 0 auto;
+		padding: 0.8rem 1.5rem;
+		display: flex;
+		align-items: center;
+	}
+	.landing-grid-layout {
+		display: grid;
+		grid-template-columns: 1.15fr 0.85fr;
+		gap: 2.4rem;
+		align-items: center;
+		width: 100%;
+	}
+
+	/* COLUMN 1: LANDING PAGE INFO */
+	.landing-info-column {
+		display: flex;
+		flex-direction: column;
+	}
+	.hero-tag-badge {
+		align-self: flex-start;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		background: #eef7ee;
+		border: 1px solid #c0e6ce;
+		color: #047857;
+		padding: 0.26rem 0.75rem;
+		border-radius: 9999px;
+		font-size: 0.74rem;
+		font-weight: 700;
+		margin-bottom: 0.6rem;
+		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.04);
+	}
+	.landing-hero-title {
+		font-family: 'Outfit', sans-serif;
+		font-size: clamp(1.6rem, 2.3vw, 2.15rem);
+		font-weight: 800;
+		color: #231f1c;
+		line-height: 1.18;
+		letter-spacing: -0.025em;
+		margin-bottom: 0.5rem;
+	}
+	.accent-text-highlight {
+		background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		display: inline;
+	}
+	.landing-hero-subtitle {
+		font-size: 0.86rem;
+		line-height: 1.48;
+		color: #554d44;
+		margin-bottom: 0.9rem;
+		max-width: 540px;
+	}
+
+	/* INTERACTIVE SHOWCASE CARD (CHAT SIMULATION) */
+	.landing-showcase-card {
+		background: #ffffff;
+		border: 1.5px solid #ded5c8;
+		border-radius: 16px;
+		box-shadow: 0 10px 26px -8px rgba(35, 31, 28, 0.08), 0 3px 8px rgba(35, 31, 28, 0.03);
+		overflow: hidden;
+		margin-bottom: 0.85rem;
+	}
+	.showcase-card-header {
+		background: #faf6f0;
+		border-bottom: 1px solid #e7ded2;
+		padding: 0.5rem 0.85rem;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.65rem;
+	}
+	.showcase-assistant-avatar {
+		width: 30px;
+		height: 30px;
+		border-radius: 8px;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: #ffffff;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 1.5rem 1rem;
-		background-color: #efeae2;
-		background-image: url("data:image/svg+xml,%3Csvg width='140' height='140' viewBox='0 0 140 140' xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23706456' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round' opacity='0.16'%3E%3Cpath d='M16 26 h18 a2 2 0 0 1 2 2 v9 a9 9 0 0 1 -9 9 h-2 a9 9 0 0 1 -9 -9 v-9 a2 2 0 0 1 2 -2 z'/%3E%3Crect x='85' y='18' width='36' height='24' rx='4'/%3E%3Ccircle cx='124' cy='112' r='8'/%3E%3C/svg%3E");
+		flex-shrink: 0;
+	}
+	.showcase-assistant-info {
+		flex: 1;
+		min-width: 0;
+	}
+	.assistant-name {
+		font-size: 0.82rem;
+		font-weight: 800;
+		color: #231f1c;
+	}
+	.assistant-status {
+		font-size: 0.68rem;
+		color: #736b61;
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+	}
+	.online-indicator {
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		background: #10b981;
+	}
+	.showcase-mode-pill {
+		font-size: 0.68rem;
+		font-weight: 700;
+		background: #eae3d6;
+		color: #554d44;
+		padding: 0.2rem 0.55rem;
+		border-radius: 9999px;
+		border: 1px solid #ddd5c7;
+	}
+
+	.showcase-chat-flow {
+		padding: 0.75rem 0.85rem;
+		background: #efeae2;
+		background-image: url("data:image/svg+xml,%3Csvg width='140' height='140' viewBox='0 0 140 140' xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23706456' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round' opacity='0.08'%3E%3Cpath d='M16 26 h18 a2 2 0 0 1 2 2 v9 a9 9 0 0 1 -9 9 h-2 a9 9 0 0 1 -9 -9 v-9 a2 2 0 0 1 2 -2 z'/%3E%3Crect x='85' y='18' width='36' height='24' rx='4'/%3E%3Ccircle cx='124' cy='112' r='8'/%3E%3C/svg%3E");
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.chat-bubble-row {
+		display: flex;
+		width: 100%;
+	}
+	.chat-bubble-row.user-row { justify-content: flex-end; }
+	.chat-bubble-row.bot-row { justify-content: flex-start; }
+
+	.chat-mock-bubble {
+		max-width: 88%;
+		border-radius: 12px;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.8rem;
+		line-height: 1.35;
+		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.06);
+		position: relative;
+	}
+	.user-bubble {
+		background: #dcf8c6;
+		color: #13381e;
+		border: 1px solid #c8e6b3;
+		border-top-right-radius: 3px;
+	}
+	.bot-bubble {
+		background: #ffffff;
+		color: #231f1c;
+		border: 1px solid #e3dbce;
+		border-top-left-radius: 3px;
+	}
+	.chat-time {
+		display: block;
+		text-align: right;
+		font-size: 0.65rem;
+		color: #7c746b;
+		margin-top: 0.15rem;
+	}
+	.bot-badge-tag {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		font-size: 0.7rem;
+		font-weight: 800;
+		color: #047857;
+		background: #e6f4ea;
+		padding: 0.15rem 0.45rem;
+		border-radius: 5px;
+		margin-bottom: 0.25rem;
+	}
+	.bot-badge-tag.vision-tag {
+		color: #92400e;
+		background: #fef3c7;
+	}
+	.bot-badge-tag .text-danger { color: #e11d48; font-weight: 800; }
+	.bot-micro-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		font-size: 0.72rem;
+		color: #6d6459;
+	}
+	.category-chip {
+		background: #eef2ff;
+		color: #4338ca;
+		font-weight: 700;
+		font-size: 0.68rem;
+		padding: 0.1rem 0.4rem;
+		border-radius: 5px;
+	}
+	.chip-sub {
+		color: #554d44;
+		font-size: 0.7rem;
+		font-weight: 600;
+	}
+	.receipt-banner-bubble {
+		background: #fffdfa;
+	}
+	.receipt-banner-text {
+		font-size: 0.74rem;
+		color: #433d34;
+		line-height: 1.32;
+	}
+
+	/* COMPACT FEATURES ROW */
+	.landing-features-compact-row {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 0.45rem;
+	}
+	.compact-feature-pill {
+		background: #ffffff;
+		border: 1px solid #ded5c8;
+		border-radius: 10px;
+		padding: 0.42rem 0.65rem;
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #231f1c;
+		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.03);
+	}
+	.pill-icon {
+		width: 26px;
+		height: 26px;
+		border-radius: 7px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+	.icon-emerald-soft { background: #e6f4ea; color: #059669; }
+	.icon-amber-soft { background: #fef3c7; color: #d97706; }
+	.icon-indigo-soft { background: #eef2ff; color: #4f46e5; }
+	.icon-rose-soft { background: #ffe4e6; color: #e11d48; }
+
+	/* COLUMN 2: AUTH CARD BOX */
+	.landing-auth-column {
+		position: relative;
+	}
+	.sticky-auth-box {
+		position: static;
 	}
 	.auth-card-box {
 		width: 100%;
-		max-width: 420px;
 		background: #ffffff;
-		border: 1px solid #ded5c7;
+		border: 1.5px solid #ded5c8;
 		border-radius: 20px;
-		padding: 1.8rem 1.4rem;
-		box-shadow: 0 10px 30px rgba(35, 31, 28, 0.08);
+		padding: 1.45rem 1.45rem;
+		box-shadow: 0 14px 34px -10px rgba(35, 31, 28, 0.1), 0 3px 10px rgba(35, 31, 28, 0.04);
 		display: flex;
 		flex-direction: column;
-		gap: 1.1rem;
+		gap: 0.85rem;
 		animation: fadeIn 0.25s ease;
 	}
 	.auth-brand-head {
@@ -2368,64 +2964,64 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.35rem;
+		gap: 0.2rem;
 	}
 	.brand-gem-large {
-		width: 52px;
-		height: 52px;
+		width: 44px;
+		height: 44px;
 		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
 		color: #ffffff;
-		border-radius: 14px;
+		border-radius: 12px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
-		margin-bottom: 0.25rem;
+		box-shadow: 0 3px 10px rgba(5, 150, 105, 0.26);
+		margin-bottom: 0.15rem;
 	}
 	.auth-app-title {
-		font-size: 1.6rem;
+		font-size: 1.3rem;
 		font-weight: 800;
 		font-family: 'Outfit', sans-serif;
 		color: #231f1c;
 		letter-spacing: -0.02em;
 	}
 	.auth-app-desc {
-		font-size: 0.8rem;
-		color: #736b61;
+		font-size: 0.76rem;
+		color: #6d6459;
 		line-height: 1.35;
 	}
 
 	.auth-tabs-row {
 		display: flex;
 		background: #eae3d6;
-		padding: 0.25rem;
+		padding: 0.2rem;
 		border-radius: 10px;
-		border: 1px solid #ddd5c7;
+		border: 1px solid #ded5c8;
 	}
 	.auth-tab-btn {
 		flex: 1;
 		background: transparent;
 		color: #6d6459;
-		padding: 0.5rem 0;
+		padding: 0.45rem 0;
 		border-radius: 8px;
 		font-weight: 700;
-		font-size: 0.85rem;
+		font-size: 0.82rem;
 		text-align: center;
-		transition: all 0.15s;
+		transition: all 0.18s ease;
 	}
 	.auth-tab-btn.active {
 		background: #ffffff;
 		color: #231f1c;
-		box-shadow: 0 1px 4px rgba(35, 31, 28, 0.08);
+		box-shadow: 0 1px 4px rgba(35, 31, 28, 0.1);
 	}
 
 	.auth-error-banner {
 		background: #fee2e2;
 		border: 1px solid #fecaca;
 		color: #b91c1c;
-		padding: 0.6rem 0.85rem;
+		padding: 0.55rem 0.8rem;
 		border-radius: 8px;
-		font-size: 0.8rem;
+		font-size: 0.78rem;
 		display: flex;
 		align-items: center;
 		gap: 0.45rem;
@@ -2434,17 +3030,33 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	.auth-form-stack {
 		display: flex;
 		flex-direction: column;
-		gap: 0.85rem;
+		gap: 0.72rem;
 	}
 	.auth-field {
 		display: flex;
 		flex-direction: column;
-		gap: 0.3rem;
+		gap: 0.22rem;
+	}
+	.field-label-split {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
 	}
 	.auth-field label {
-		font-size: 0.78rem;
+		font-size: 0.76rem;
 		font-weight: 700;
-		color: #433d34;
+		color: #3b352e;
+	}
+	.btn-toggle-pwd {
+		background: transparent;
+		color: #059669;
+		font-size: 0.72rem;
+		font-weight: 700;
+		padding: 0;
+		cursor: pointer;
+	}
+	.btn-toggle-pwd:hover {
+		text-decoration: underline;
 	}
 	.auth-input-wrap {
 		display: flex;
@@ -2452,13 +3064,14 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		gap: 0.5rem;
 		background: #faf7f2;
 		border: 1.5px solid #ded5c8;
-		border-radius: 10px;
-		padding: 0.65rem 0.85rem;
-		transition: border-color 0.15s;
+		border-radius: 9px;
+		padding: 0.58rem 0.8rem;
+		transition: border-color 0.15s ease, box-shadow 0.15s ease;
 	}
 	.auth-input-wrap:focus-within {
 		border-color: #059669;
 		background: #ffffff;
+		box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
 	}
 	.auth-input-icon { color: #8e8579; flex-shrink: 0; }
 	.auth-input-wrap input {
@@ -2467,23 +3080,59 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		outline: none;
 		background: transparent;
 		color: #231f1c;
-		font-size: 0.88rem;
+		font-size: 0.86rem;
 	}
 
 	.btn-auth-submit {
-		margin-top: 0.4rem;
+		margin-top: 0.2rem;
 		width: 100%;
 		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
 		color: #ffffff;
 		font-weight: 700;
-		font-size: 0.92rem;
-		padding: 0.8rem;
+		font-size: 0.9rem;
+		padding: 0.76rem;
 		border-radius: 10px;
-		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-		transition: transform 0.1s, opacity 0.1s;
+		box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+		transition: transform 0.12s ease, opacity 0.12s ease, box-shadow 0.12s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+	}
+	.btn-auth-submit:hover:not(:disabled) {
+		transform: translateY(-1px);
+		box-shadow: 0 6px 18px rgba(16, 185, 129, 0.36);
 	}
 	.btn-auth-submit:active { transform: scale(0.98); }
-	.btn-auth-submit:disabled { opacity: 0.6; }
+	.btn-auth-submit:disabled { opacity: 0.65; cursor: not-allowed; }
+
+	.btn-spinner {
+		width: 15px;
+		height: 15px;
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		border-top-color: #ffffff;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.auth-switch-helper {
+		text-align: center;
+		font-size: 0.78rem;
+		color: #6d6459;
+	}
+	.link-switch-auth {
+		background: transparent;
+		border: none;
+		color: #059669;
+		font-weight: 700;
+		cursor: pointer;
+		text-decoration: underline;
+		padding: 0;
+	}
+	.link-switch-auth:hover { color: #047857; }
 
 	.auth-security-notice {
 		display: flex;
@@ -2491,13 +3140,120 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		gap: 0.45rem;
 		background: #faf7f2;
 		border: 1px solid #e8dfd3;
-		padding: 0.65rem 0.8rem;
+		padding: 0.55rem 0.75rem;
 		border-radius: 8px;
-		font-size: 0.72rem;
-		color: #736b61;
+		font-size: 0.7rem;
+		color: #6d6459;
 		line-height: 1.35;
 	}
 	.auth-security-notice svg { flex-shrink: 0; color: #059669; margin-top: 1px; }
+	.security-text-box strong { color: #231f1c; display: block; margin-bottom: 0.05rem; }
+
+	.auth-quick-perks {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		border-top: 1px solid #eee7dc;
+		padding-top: 0.65rem;
+	}
+	.perk-bullet {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.72rem;
+		color: #554d44;
+		font-weight: 600;
+	}
+	.perk-bullet svg { color: #10b981; flex-shrink: 0; }
+
+	/* LANDING FOOTER */
+	.landing-page-footer {
+		background: #ece5d9;
+		border-top: 1px solid #ded5c8;
+		padding: 0.55rem 1.5rem;
+		flex-shrink: 0;
+	}
+	.footer-inner {
+		max-width: 1240px;
+		margin: 0 auto;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+		font-size: 0.75rem;
+		color: #736b61;
+	}
+	.footer-left {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+	.footer-logo {
+		font-family: 'Outfit', sans-serif;
+		font-weight: 800;
+		color: #231f1c;
+		font-size: 0.9rem;
+	}
+	.footer-right {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+	}
+	.dot-sep { opacity: 0.5; }
+
+	/* ====================================================
+	   DESKTOP (>= 960px): FIT IN EXACTLY 1 VIEWPORT SCREEN (NO SCROLL)
+	   ==================================================== */
+	@media (min-width: 960px) {
+		.landing-page-wrap {
+			height: 100dvh;
+			max-height: 100dvh;
+			overflow: hidden;
+		}
+	}
+
+	/* ====================================================
+	   MOBILE MODE (< 960px): DIRECT LOGIN ONLY!
+	   SEPERTI DIMINTA: TAMPIL HALAMAN LOGIN AJA LANGSUNG
+	   ==================================================== */
+	@media (max-width: 959px) {
+		.landing-page-wrap {
+			min-height: 100dvh;
+			justify-content: center;
+			align-items: center;
+			padding: 1.25rem 1rem;
+		}
+		/* Sembunyikan elemen landing info, navbar, dan footer di mode mobile */
+		.landing-nav-bar,
+		.landing-info-column,
+		.landing-page-footer {
+			display: none !important;
+		}
+		.landing-main-container {
+			padding: 0;
+			width: 100%;
+			max-width: 440px;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+		.landing-grid-layout {
+			display: block;
+			width: 100%;
+		}
+		.landing-auth-column {
+			width: 100%;
+		}
+		.auth-card-box {
+			width: 100%;
+			max-width: 440px;
+			margin: 0 auto;
+			padding: 1.8rem 1.4rem;
+			box-shadow: 0 10px 30px rgba(35, 31, 28, 0.08);
+		}
+	}
 
 	/* ====================================================
 	   APP HEADER MODERN 2-TIER (ZERO CRAMPED, ZERO OVERLAP)
@@ -3170,15 +3926,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		transition: all 0.15s;
 		text-align: center;
 	}
-	.btn-plan-pro {
-		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-		color: #ffffff;
-		box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);
-	}
-	.btn-plan-pro:hover {
-		transform: translateY(-1px);
-		box-shadow: 0 6px 16px rgba(217, 119, 6, 0.4);
-	}
+
 	.btn-plan-free {
 		background: #ffffff;
 		border: 1px solid #ded5c8;

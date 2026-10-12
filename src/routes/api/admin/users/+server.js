@@ -16,14 +16,19 @@ export async function GET({ cookies }) {
 
 		const sql = await getDb();
 		const users = await sql`
-			SELECT id, nama, email, 
-			       COALESCE(role, 'user') as role, 
-			       COALESCE(tier, 'free') as tier,
-			       COALESCE(chat_count_today, 0)::int as chat_count_today,
-			       COALESCE(chat_date_today::text, CURRENT_DATE::text) as chat_date_today,
-			       dibuat
-			FROM users
-			ORDER BY id ASC
+			SELECT u.id, u.nama, u.email, 
+			       COALESCE(u.role, 'user') as role, 
+			       COALESCE(u.tier, 'free') as tier,
+			       COALESCE(u.chat_count_today, 0)::int as chat_count_today,
+			       COALESCE(u.chat_date_today::text, CURRENT_DATE::text) as chat_date_today,
+			       u.dibuat,
+			       COUNT(t.id)::int as total_transaksi,
+			       COALESCE(SUM(CASE WHEN t.tipe = 'pengeluaran' THEN t.total ELSE 0 END), 0)::float as total_pengeluaran,
+			       COALESCE(SUM(CASE WHEN t.tipe = 'pemasukan' THEN t.total ELSE 0 END), 0)::float as total_pemasukan
+			FROM users u
+			LEFT JOIN transaksi t ON u.id = t.user_id
+			GROUP BY u.id
+			ORDER BY u.id ASC
 		`;
 
 		const totalUsers = users.length;

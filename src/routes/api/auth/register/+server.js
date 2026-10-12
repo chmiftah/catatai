@@ -46,7 +46,14 @@ export async function POST({ request, cookies }) {
 			user: {
 				id: newUser.id,
 				email: newUser.email,
-				nama: newUser.nama
+				nama: newUser.nama,
+				role: 'user',
+				is_admin: newUser.email === 'miftahdev7@gmail.com',
+				tier: 'free',
+				is_pro: false,
+				chat_count_today: 0,
+				sisa_kuota: 5,
+				max_kuota: 5
 			}
 		});
 	} catch (err) {
