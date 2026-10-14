@@ -13,9 +13,13 @@ export async function GET({ url, cookies }) {
 		const sql = await getDb();
 		const bulan = url.searchParams.get('bulan'); // contoh: '2026-10'
 		const tanggal = url.searchParams.get('tanggal'); // contoh: '2026-10-11'
+		const dariTanggal = url.searchParams.get('dari_tanggal') || url.searchParams.get('startDate') || url.searchParams.get('start_date');
+		const sampaiTanggal = url.searchParams.get('sampai_tanggal') || url.searchParams.get('endDate') || url.searchParams.get('end_date');
 		const kategori = url.searchParams.get('kategori');
 		const tipe = url.searchParams.get('tipe');
 		const cari = url.searchParams.get('q');
+
+		const hasRange = Boolean(dariTanggal || sampaiTanggal);
 
 		// Ambil transaksi milik user yang sedang login
 		let rawList = await sql`
@@ -29,8 +33,10 @@ export async function GET({ url, cookies }) {
 			LEFT JOIN transaksi_item i ON t.id = i.transaksi_id
 			WHERE 
 				t.user_id = ${user.id}
-				AND (${bulan ? sql`to_char(t.tanggal, 'YYYY-MM') = ${bulan}` : sql`1=1`})
-				AND (${tanggal ? sql`t.tanggal = ${tanggal}::date` : sql`1=1`})
+				AND (${dariTanggal ? sql`t.tanggal >= ${dariTanggal}::date` : sql`1=1`})
+				AND (${sampaiTanggal ? sql`t.tanggal <= ${sampaiTanggal}::date` : sql`1=1`})
+				AND (${!hasRange && bulan ? sql`to_char(t.tanggal, 'YYYY-MM') = ${bulan}` : sql`1=1`})
+				AND (${!hasRange && tanggal ? sql`t.tanggal = ${tanggal}::date` : sql`1=1`})
 				AND (${kategori ? sql`t.kategori = ${kategori}` : sql`1=1`})
 				AND (${tipe ? sql`t.tipe = ${tipe}` : sql`1=1`})
 			GROUP BY t.id
@@ -49,7 +55,7 @@ export async function GET({ url, cookies }) {
 			);
 		}
 
-		// Rekap Agregasi Bulanan milik user yang sedang login
+		// Rekap Agregasi milik user yang sedang login
 		const statsList = await sql`
 			SELECT 
 				COALESCE(SUM(CASE WHEN t.tipe = 'pengeluaran' THEN t.total ELSE 0 END), 0)::float as total_pengeluaran,
@@ -58,7 +64,10 @@ export async function GET({ url, cookies }) {
 			FROM transaksi t
 			WHERE 
 				t.user_id = ${user.id}
-				AND (${bulan ? sql`to_char(t.tanggal, 'YYYY-MM') = ${bulan}` : sql`1=1`})
+				AND (${dariTanggal ? sql`t.tanggal >= ${dariTanggal}::date` : sql`1=1`})
+				AND (${sampaiTanggal ? sql`t.tanggal <= ${sampaiTanggal}::date` : sql`1=1`})
+				AND (${!hasRange && bulan ? sql`to_char(t.tanggal, 'YYYY-MM') = ${bulan}` : sql`1=1`})
+				AND (${!hasRange && tanggal ? sql`t.tanggal = ${tanggal}::date` : sql`1=1`})
 		`;
 
 		// Rekap Harian untuk Grafik Tren milik user
@@ -71,7 +80,10 @@ export async function GET({ url, cookies }) {
 			FROM transaksi t
 			WHERE 
 				t.user_id = ${user.id}
-				AND (${bulan ? sql`to_char(t.tanggal, 'YYYY-MM') = ${bulan}` : sql`1=1`})
+				AND (${dariTanggal ? sql`t.tanggal >= ${dariTanggal}::date` : sql`1=1`})
+				AND (${sampaiTanggal ? sql`t.tanggal <= ${sampaiTanggal}::date` : sql`1=1`})
+				AND (${!hasRange && bulan ? sql`to_char(t.tanggal, 'YYYY-MM') = ${bulan}` : sql`1=1`})
+				AND (${!hasRange && tanggal ? sql`t.tanggal = ${tanggal}::date` : sql`1=1`})
 			GROUP BY t.tanggal
 			ORDER BY t.tanggal ASC
 		`;
@@ -86,7 +98,10 @@ export async function GET({ url, cookies }) {
 			WHERE 
 				t.user_id = ${user.id}
 				AND t.tipe = 'pengeluaran'
-				AND (${bulan ? sql`to_char(t.tanggal, 'YYYY-MM') = ${bulan}` : sql`1=1`})
+				AND (${dariTanggal ? sql`t.tanggal >= ${dariTanggal}::date` : sql`1=1`})
+				AND (${sampaiTanggal ? sql`t.tanggal <= ${sampaiTanggal}::date` : sql`1=1`})
+				AND (${!hasRange && bulan ? sql`to_char(t.tanggal, 'YYYY-MM') = ${bulan}` : sql`1=1`})
+				AND (${!hasRange && tanggal ? sql`t.tanggal = ${tanggal}::date` : sql`1=1`})
 			GROUP BY t.kategori
 			ORDER BY total DESC
 		`;
@@ -110,6 +125,29 @@ export async function GET({ url, cookies }) {
 		const stats = statsList[0] || { total_pengeluaran: 0, total_pemasukan: 0, total_transaksi: 0 };
 		const saldo_bersih = (stats.total_pemasukan || 0) - (stats.total_pengeluaran || 0);
 
+		// Rekap Agregasi Khusus Minggu Ini (Senin s/d Minggu Berjalan)
+		const statsMingguList = await sql`
+			SELECT 
+				COALESCE(SUM(CASE WHEN t.tipe = 'pengeluaran' THEN t.total ELSE 0 END), 0)::float as total_pengeluaran,
+				COALESCE(SUM(CASE WHEN t.tipe = 'pemasukan' THEN t.total ELSE 0 END), 0)::float as total_pemasukan,
+				COUNT(t.id)::int as total_transaksi,
+				to_char(date_trunc('week', CURRENT_DATE), 'YYYY-MM-DD') as start_date,
+				to_char(date_trunc('week', CURRENT_DATE) + interval '6 days', 'YYYY-MM-DD') as end_date
+			FROM transaksi t
+			WHERE 
+				t.user_id = ${user.id}
+				AND t.tanggal >= date_trunc('week', CURRENT_DATE)::date
+				AND t.tanggal <= (date_trunc('week', CURRENT_DATE) + interval '6 days')::date
+		`;
+		const statsMinggu = statsMingguList[0] || {
+			total_pengeluaran: 0,
+			total_pemasukan: 0,
+			total_transaksi: 0,
+			start_date: '',
+			end_date: ''
+		};
+		const saldo_bersih_minggu = (statsMinggu.total_pemasukan || 0) - (statsMinggu.total_pengeluaran || 0);
+
 		return json({
 			success: true,
 			transaksi: list,
@@ -120,7 +158,15 @@ export async function GET({ url, cookies }) {
 				total_transaksi: stats.total_transaksi,
 				tren_harian: trenHarian,
 				rekap_kategori: rekapKategori,
-				top_merchant: topMerchant
+				top_merchant: topMerchant,
+				ringkasan_minggu_ini: {
+					total_pengeluaran: statsMinggu.total_pengeluaran,
+					total_pemasukan: statsMinggu.total_pemasukan,
+					saldo_bersih: saldo_bersih_minggu,
+					total_transaksi: statsMinggu.total_transaksi,
+					start_date: statsMinggu.start_date,
+					end_date: statsMinggu.end_date
+				}
 			}
 		});
 	} catch (err) {

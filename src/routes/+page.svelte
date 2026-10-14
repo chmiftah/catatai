@@ -16,10 +16,11 @@
 	// PWA INSTALL STATE
 	let deferredInstallPrompt = $state(null);
 	let canInstallPWA = $state(false);
+	let isAppStandalone = $state(false);
 
 	// Navigasi Utama: Hanya 2 Tombol ('chat' | 'report')
 	let activeView = $state('chat'); // 'chat' (default) | 'report'
-	let reportSubTab = $state('bulanan'); // 'bulanan' | 'harian' | 'semua'
+	let reportSubTab = $state('bulanan'); // 'bulanan' | 'mingguan' | 'periode' | 'harian' | 'semua'
 
 	let loading = $state(false);
 	let errorMsg = $state('');
@@ -30,6 +31,38 @@
 	const pad = (n) => String(n).padStart(2, '0');
 	let selectedBulan = $state(`${now.getFullYear()}-${pad(now.getMonth() + 1)}`);
 	let selectedTanggal = $state(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
+
+	// Filter Periode Mingguan (Senin s/d Minggu)
+	let selectedWeekDate = $state(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
+
+	function getWeekRange(dateStr) {
+		const base = new Date((dateStr || `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`) + 'T00:00:00');
+		const day = base.getDay(); // 0 = Minggu, 1 = Senin, ...
+		const diffToMon = (day === 0 ? -6 : 1) - day;
+		const mon = new Date(base);
+		mon.setDate(base.getDate() + diffToMon);
+		const sun = new Date(mon);
+		sun.setDate(mon.getDate() + 6);
+		const sStr = `${mon.getFullYear()}-${pad(mon.getMonth() + 1)}-${pad(mon.getDate())}`;
+		const eStr = `${sun.getFullYear()}-${pad(sun.getMonth() + 1)}-${pad(sun.getDate())}`;
+		return { start: sStr, end: eStr, monday: mon, sunday: sun };
+	}
+
+	let currentWeekRange = $derived(getWeekRange(selectedWeekDate));
+
+	// Filter Rentang Periode Kustom (Manual Input)
+	const sevenDaysAgo = new Date(now);
+	sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+	let customStartDate = $state(`${sevenDaysAgo.getFullYear()}-${pad(sevenDaysAgo.getMonth() + 1)}-${pad(sevenDaysAgo.getDate())}`);
+	let customEndDate = $state(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
+
+	function calculateDayDiff(start, end) {
+		if (!start || !end) return 1;
+		const d1 = new Date(start + 'T00:00:00');
+		const d2 = new Date(end + 'T00:00:00');
+		const diff = Math.round(Math.abs((d2 - d1) / (1000 * 60 * 60 * 24))) + 1;
+		return diff;
+	}
 	
 	// Data Transaksi & Rekap dari Neon DB (Terisolasi per User)
 	let transaksiList = $state([]);
@@ -40,7 +73,15 @@
 		total_transaksi: 0,
 		tren_harian: [],
 		rekap_kategori: [],
-		top_merchant: []
+		top_merchant: [],
+		ringkasan_minggu_ini: {
+			total_pengeluaran: 0,
+			total_pemasukan: 0,
+			saldo_bersih: 0,
+			total_transaksi: 0,
+			start_date: '',
+			end_date: ''
+		}
 	});
 
 	// CHAT STATE (Mobile-First WA Style)
@@ -343,22 +384,38 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	}
 
 	async function triggerPWAInstall() {
-		if (!deferredInstallPrompt) return;
-		deferredInstallPrompt.prompt();
-		const { outcome } = await deferredInstallPrompt.userChoice;
-		if (outcome === 'accepted') {
-			canInstallPWA = false;
-			successMsg = 'CatatAi berhasil dipasang di perangkat Anda!';
-			setTimeout(() => { successMsg = ''; }, 3500);
+		if (deferredInstallPrompt) {
+			deferredInstallPrompt.prompt();
+			const { outcome } = await deferredInstallPrompt.userChoice;
+			if (outcome === 'accepted') {
+				canInstallPWA = false;
+				isAppStandalone = true;
+				successMsg = 'CatatAi berhasil dipasang di perangkat Anda!';
+				setTimeout(() => { successMsg = ''; }, 3500);
+			}
+			deferredInstallPrompt = null;
+		} else {
+			alert('📱 Cara Memasang CatatAi ke Layar Utama:\n\n• Di iPhone/iPad (Safari): Tekan ikon Bagikan (Share) ⎋ di bawah, lalu pilih "Tambah ke Layar Utama" (+).\n• Di Android (Chrome): Tekan menu titik tiga (⋮) di kanan atas, lalu pilih "Instal aplikasi" atau "Tambahkan ke Layar Utama".\n• Di Komputer (Chrome/Edge): Tekan ikon Instal di ujung kanan address bar browser.');
 		}
-		deferredInstallPrompt = null;
 	}
 
 	async function loadData() {
 		if (!currentUser) return;
 		loading = true;
 		try {
-			const res = await fetch(`/api/transaksi?bulan=${selectedBulan}`);
+			let url = `/api/transaksi`;
+			if (reportSubTab === 'mingguan') {
+				const range = getWeekRange(selectedWeekDate);
+				url += `?dari_tanggal=${range.start}&sampai_tanggal=${range.end}`;
+			} else if (reportSubTab === 'periode') {
+				url += `?dari_tanggal=${customStartDate}&sampai_tanggal=${customEndDate}`;
+			} else if (reportSubTab === 'harian') {
+				const monthOfTanggal = selectedTanggal.slice(0, 7);
+				url += `?bulan=${monthOfTanggal}`;
+			} else {
+				url += `?bulan=${selectedBulan}`;
+			}
+			const res = await fetch(url);
 			const data = await res.json();
 			if (!res.ok) {
 				if (res.status === 401) {
@@ -375,9 +432,17 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 				total_transaksi: 0,
 				tren_harian: [],
 				rekap_kategori: [],
-				top_merchant: []
+				top_merchant: [],
+				ringkasan_minggu_ini: {
+					total_pengeluaran: 0,
+					total_pemasukan: 0,
+					saldo_bersih: 0,
+					total_transaksi: 0,
+					start_date: '',
+					end_date: ''
+				}
 			};
-					// Inisialisasi chat hanya jika belum ada pesan yang dimuat
+			// Inisialisasi chat hanya jika belum ada pesan yang dimuat
 			if (chatMessages.length === 0) {
 				initChatMessages();
 			}
@@ -409,11 +474,24 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	onMount(() => {
 		checkAuth();
 
+		// Detect standalone display mode (PWA installed)
+		if (typeof window !== 'undefined') {
+			if (window.matchMedia('(display-mode: standalone)').matches || ('standalone' in navigator && navigator.standalone)) {
+				isAppStandalone = true;
+			}
+		}
+
 		// Listen to PWA install prompt
 		window.addEventListener('beforeinstallprompt', (e) => {
 			e.preventDefault();
 			deferredInstallPrompt = e;
 			canInstallPWA = true;
+		});
+
+		window.addEventListener('appinstalled', () => {
+			isAppStandalone = true;
+			canInstallPWA = false;
+			deferredInstallPrompt = null;
 		});
 	});
 
@@ -440,6 +518,94 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 	function currentMonth() {
 		selectedBulan = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+		loadData();
+	}
+
+	function switchReportSubTab(tab) {
+		reportSubTab = tab;
+		loadData();
+	}
+
+	function prevWeek() {
+		const base = new Date(selectedWeekDate + 'T00:00:00');
+		base.setDate(base.getDate() - 7);
+		selectedWeekDate = `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`;
+		loadData();
+	}
+
+	function nextWeek() {
+		const base = new Date(selectedWeekDate + 'T00:00:00');
+		base.setDate(base.getDate() + 7);
+		selectedWeekDate = `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`;
+		loadData();
+	}
+
+	function currentWeek() {
+		selectedWeekDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+		loadData();
+	}
+
+	const NAMA_HARI_SHORT = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+	const NAMA_HARI_FULL = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+	let weekDaysData = $derived.by(() => {
+		const range = currentWeekRange;
+		const days = [];
+		const curr = new Date(range.monday);
+		const trenMap = {};
+		for (const itm of (rekap.tren_harian || [])) {
+			trenMap[itm.tanggal] = itm;
+		}
+		for (let i = 0; i < 7; i++) {
+			const dStr = `${curr.getFullYear()}-${pad(curr.getMonth() + 1)}-${pad(curr.getDate())}`;
+			const dayOfWeek = curr.getDay();
+			const entry = trenMap[dStr] || { pengeluaran: 0, pemasukan: 0, count: 0 };
+			days.push({
+				date: dStr,
+				dayShort: NAMA_HARI_SHORT[dayOfWeek],
+				dayFull: NAMA_HARI_FULL[dayOfWeek],
+				dayNum: pad(curr.getDate()),
+				pengeluaran: entry.pengeluaran || 0,
+				pemasukan: entry.pemasukan || 0,
+				count: entry.count || 0
+			});
+			curr.setDate(curr.getDate() + 1);
+		}
+		return days;
+	});
+
+	function setPeriodPreset(preset) {
+		const t = new Date();
+		if (preset === 'hari-ini') {
+			const str = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+			customStartDate = str;
+			customEndDate = str;
+		} else if (preset === '7-hari') {
+			const past = new Date(t);
+			past.setDate(past.getDate() - 6);
+			customStartDate = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
+			customEndDate = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+		} else if (preset === '14-hari') {
+			const past = new Date(t);
+			past.setDate(past.getDate() - 13);
+			customStartDate = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
+			customEndDate = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+		} else if (preset === '30-hari') {
+			const past = new Date(t);
+			past.setDate(past.getDate() - 29);
+			customStartDate = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
+			customEndDate = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+		} else if (preset === 'bulan-ini') {
+			const firstDay = new Date(t.getFullYear(), t.getMonth(), 1);
+			const lastDay = new Date(t.getFullYear(), t.getMonth() + 1, 0);
+			customStartDate = `${firstDay.getFullYear()}-${pad(firstDay.getMonth() + 1)}-${pad(firstDay.getDate())}`;
+			customEndDate = `${lastDay.getFullYear()}-${pad(lastDay.getMonth() + 1)}-${pad(lastDay.getDate())}`;
+		} else if (preset === 'bulan-lalu') {
+			const firstDay = new Date(t.getFullYear(), t.getMonth() - 1, 1);
+			const lastDay = new Date(t.getFullYear(), t.getMonth(), 0);
+			customStartDate = `${firstDay.getFullYear()}-${pad(firstDay.getMonth() + 1)}-${pad(firstDay.getDate())}`;
+			customEndDate = `${lastDay.getFullYear()}-${pad(lastDay.getMonth() + 1)}-${pad(lastDay.getDate())}`;
+		}
 		loadData();
 	}
 
@@ -477,6 +643,44 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			return acc;
 		}, { pengeluaran: 0, pemasukan: 0 })
 	);
+
+	let companionPeriodTab = $state('minggu'); // 'minggu' | 'bulan'
+
+	// Catatan transaksi khusus MINGGU INI untuk Chat & Sidebar
+	let currentWeekRangeToday = $derived(getWeekRange(todayTanggal));
+
+	let transaksiMingguIni = $derived(
+		transaksiList.filter((t) => {
+			const rng = currentWeekRangeToday;
+			return t.tanggal >= rng.start && t.tanggal <= rng.end;
+		})
+	);
+
+	let totalMingguIni = $derived.by(() => {
+		if (rekap.ringkasan_minggu_ini && rekap.ringkasan_minggu_ini.total_pengeluaran !== undefined) {
+			return {
+				pengeluaran: Number(rekap.ringkasan_minggu_ini.total_pengeluaran) || 0,
+				pemasukan: Number(rekap.ringkasan_minggu_ini.total_pemasukan) || 0,
+				saldo_bersih: Number(rekap.ringkasan_minggu_ini.saldo_bersih) || 0,
+				total_transaksi: Number(rekap.ringkasan_minggu_ini.total_transaksi) || 0,
+				start_date: rekap.ringkasan_minggu_ini.start_date || currentWeekRangeToday.start,
+				end_date: rekap.ringkasan_minggu_ini.end_date || currentWeekRangeToday.end
+			};
+		}
+		const calc = transaksiMingguIni.reduce((acc, curr) => {
+			if (curr.tipe === 'pengeluaran') acc.pengeluaran += Number(curr.total);
+			else acc.pemasukan += Number(curr.total);
+			return acc;
+		}, { pengeluaran: 0, pemasukan: 0 });
+		return {
+			pengeluaran: calc.pengeluaran,
+			pemasukan: calc.pemasukan,
+			saldo_bersih: calc.pemasukan - calc.pengeluaran,
+			total_transaksi: transaksiMingguIni.length,
+			start_date: currentWeekRangeToday.start,
+			end_date: currentWeekRangeToday.end
+		};
+	});
 
 	let harianTransaksi = $derived(
 		transaksiList.filter((t) => t.tanggal === selectedTanggal)
@@ -524,6 +728,54 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		chatLoading = true;
 		saveChatHistory();
 		scrollToBottom();
+
+		const cleanLower = (text || '').toLowerCase().trim();
+		if (cleanLower === 'ringkasan minggu ini' || cleanLower === 'rekap minggu ini' || cleanLower === 'laporan minggu ini' || cleanLower === 'minggu ini') {
+			const s = totalMingguIni;
+			const botTime = `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
+			const msgContent = `📊 **Ringkasan Keuangan Minggu Ini** (${formatTgl(s.start_date)} – ${formatTgl(s.end_date)}):\n\n` +
+				`• **Pengeluaran:** ${formatRupiah(s.pengeluaran)}\n` +
+				`• **Pemasukan:** ${formatRupiah(s.pemasukan)}\n` +
+				`• **Saldo Bersih:** ${s.saldo_bersih >= 0 ? '+' : ''}${formatRupiah(s.saldo_bersih)}\n` +
+				`• **Total Transaksi:** ${s.total_transaksi} transaksi tercatat\n` +
+				`• **Pengeluaran Hari Ini:** ${formatRupiah(totalHariIni.pengeluaran)}\n\n` +
+				`💡 *Kamu juga bisa membuka tab **Report & Rekap → Mingguan** untuk grafik harian 7 hari dan kategori lengkap!* 📈`;
+			chatMessages = [
+				...chatMessages,
+				{
+					id: Date.now() + 1,
+					role: 'assistant',
+					content: msgContent,
+					time: botTime
+				}
+			];
+			saveChatHistory();
+			chatLoading = false;
+			scrollToBottom();
+			return;
+		}
+
+		if (cleanLower === 'ringkasan hari ini' || cleanLower === 'rekap hari ini' || cleanLower === 'laporan hari ini') {
+			const botTime = `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
+			const msgContent = `📅 **Ringkasan Transaksi Hari Ini** (${formatTglHari(todayTanggal)}):\n\n` +
+				`• **Pengeluaran:** ${formatRupiah(totalHariIni.pengeluaran)} (${transaksiHariIni.filter(t => t.tipe === 'pengeluaran').length} transaksi)\n` +
+				`• **Pemasukan:** ${formatRupiah(totalHariIni.pemasukan)} (${transaksiHariIni.filter(t => t.tipe === 'pemasukan').length} transaksi)\n` +
+				`• **Saldo Bersih Hari Ini:** ${formatRupiah(totalHariIni.pemasukan - totalHariIni.pengeluaran)}\n` +
+				`• **Akumulasi Minggu Ini:** ${formatRupiah(totalMingguIni.pengeluaran)}`;
+			chatMessages = [
+				...chatMessages,
+				{
+					id: Date.now() + 1,
+					role: 'assistant',
+					content: msgContent,
+					time: botTime
+				}
+			];
+			saveChatHistory();
+			chatLoading = false;
+			scrollToBottom();
+			return;
+		}
 
 		try {
 			const historyPayload = chatMessages
@@ -823,7 +1075,16 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		const encodedUri = encodeURI(csvContent);
 		const link = document.createElement('a');
 		link.setAttribute('href', encodedUri);
-		link.setAttribute('download', `Report_Transaksi_${currentUser?.nama || 'Akun'}_${selectedBulan}.csv`);
+		let periodSuffix = selectedBulan;
+		if (reportSubTab === 'mingguan') {
+			const range = getWeekRange(selectedWeekDate);
+			periodSuffix = `Minggu_${range.start}_sd_${range.end}`;
+		} else if (reportSubTab === 'periode') {
+			periodSuffix = `Periode_${customStartDate}_sd_${customEndDate}`;
+		} else if (reportSubTab === 'harian') {
+			periodSuffix = `Harian_${selectedTanggal}`;
+		}
+		link.setAttribute('download', `Report_Transaksi_${currentUser?.nama || 'Akun'}_${periodSuffix}.csv`);
 		document.body.appendChild(link);
 		link.click();
 		document.body.removeChild(link);
@@ -1222,6 +1483,8 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						<span class="brand-name-bold">CatatAi</span>
 						<span class="brand-kpi-sub">
 							Hari ini: <strong class="{totalHariIni.pengeluaran > 0 ? 'text-expense' : 'text-neutral'}">{formatRupiah(totalHariIni.pengeluaran)}</strong>
+							<span class="brand-kpi-divider">•</span>
+							Minggu ini: <strong class="{totalMingguIni.pengeluaran > 0 ? 'text-expense' : 'text-neutral'}">{formatRupiah(totalMingguIni.pengeluaran)}</strong>
 						</span>
 					</div>
 				</div>
@@ -1231,7 +1494,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 					<div class="modern-segment-bar">
 						<button 
 							class="tab-btn {activeView === 'chat' ? 'active' : ''}" 
-							onclick={() => { activeView = 'chat'; scrollToBottom(); }}
+							onclick={() => { activeView = 'chat'; if (reportSubTab !== 'bulanan') { reportSubTab = 'bulanan'; loadData(); } scrollToBottom(); }}
 						>
 							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 								<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
@@ -1618,6 +1881,18 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							{/if}
 						{/if}
 
+						<div class="chat-quick-shortcuts">
+							<button type="button" class="quick-chip-btn" onclick={() => sendChatMessage('ringkasan minggu ini')}>
+								<span>📊 Ringkasan Minggu Ini</span>
+							</button>
+							<button type="button" class="quick-chip-btn" onclick={() => sendChatMessage('ringkasan hari ini')}>
+								<span>📅 Hari Ini</span>
+							</button>
+							<button type="button" class="quick-chip-btn" onclick={() => { activeView = 'report'; switchReportSubTab('mingguan'); }}>
+								<span>📈 Grafik 7 Hari</span>
+							</button>
+						</div>
+
 						<form class="dock-form-row" onsubmit={(e) => { e.preventDefault(); sendChatMessage(); }}>
 							<label class="btn-dock-attach" title="Kirim Foto Nota">
 								<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1659,40 +1934,108 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 					<!-- DESKTOP COMPANION SIDEBAR (LIVE FINANCE PULSE) -->
 					<aside class="chat-desktop-companion">
-						<!-- Card 1: Ringkasan Saldo Bulan Ini -->
+						<!-- Card 1: Ringkasan Saldo (Minggu Ini & Bulan Ini) -->
 						<div class="companion-card">
 							<div class="companion-card-header">
 								<div class="c-head-title-row">
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 										<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>
 									</svg>
-									<span class="companion-card-title">Ringkasan Bulan Ini</span>
+									<span class="companion-card-title">{companionPeriodTab === 'minggu' ? 'Ringkasan Minggu Ini' : 'Ringkasan Bulan Ini'}</span>
 								</div>
-								<span class="companion-period-pill">{selectedBulan}</span>
+								<div class="companion-switch-pill">
+									<button 
+										type="button"
+										class="c-switch-btn {companionPeriodTab === 'minggu' ? 'active' : ''}" 
+										onclick={() => companionPeriodTab = 'minggu'}
+									>
+										Minggu
+									</button>
+									<button 
+										type="button"
+										class="c-switch-btn {companionPeriodTab === 'bulan' ? 'active' : ''}" 
+										onclick={() => companionPeriodTab = 'bulan'}
+									>
+										Bulan
+									</button>
+								</div>
 							</div>
 
-							<div class="companion-stats-grid">
-								<div class="cstat-item">
-									<span class="cstat-label">Pengeluaran</span>
-									<span class="cstat-val color-expense">{formatRupiah(rekap.total_pengeluaran)}</span>
+							{#if companionPeriodTab === 'minggu'}
+								<div class="companion-period-info-row">
+									<span class="c-period-text">📅 {formatTgl(totalMingguIni.start_date)} — {formatTgl(totalMingguIni.end_date)}</span>
+									<span class="companion-count-pill">{totalMingguIni.total_transaksi} Transaksi</span>
 								</div>
-								<div class="cstat-item">
-									<span class="cstat-label">Pemasukan</span>
-									<span class="cstat-val color-income">{formatRupiah(rekap.total_pemasukan)}</span>
+
+								<div class="companion-stats-grid">
+									<div class="cstat-item">
+										<span class="cstat-label">Pengeluaran</span>
+										<span class="cstat-val color-expense">{formatRupiah(totalMingguIni.pengeluaran)}</span>
+									</div>
+									<div class="cstat-item">
+										<span class="cstat-label">Pemasukan</span>
+										<span class="cstat-val color-income">{formatRupiah(totalMingguIni.pemasukan)}</span>
+									</div>
 								</div>
-							</div>
 
-							<div class="companion-net-row">
-								<span class="cstat-net-lbl">Saldo Bersih</span>
-								<span class="cstat-net-val {rekap.saldo_bersih >= 0 ? 'color-income' : 'color-expense'}">
-									{rekap.saldo_bersih >= 0 ? '+' : ''}{formatRupiah(rekap.saldo_bersih)}
-								</span>
-							</div>
+								<div class="companion-net-row">
+									<span class="cstat-net-lbl">Saldo Bersih</span>
+									<span class="cstat-net-val {totalMingguIni.saldo_bersih >= 0 ? 'color-income' : 'color-expense'}">
+										{totalMingguIni.saldo_bersih >= 0 ? '+' : ''}{formatRupiah(totalMingguIni.saldo_bersih)}
+									</span>
+								</div>
 
-							<div class="companion-today-row">
-								<span>Pengeluaran Hari Ini</span>
-								<strong class="{totalHariIni.pengeluaran > 0 ? 'color-expense' : 'text-neutral'}">{formatRupiah(totalHariIni.pengeluaran)}</strong>
-							</div>
+								<div class="companion-today-row">
+									<span>Pengeluaran Hari Ini</span>
+									<strong class="{totalHariIni.pengeluaran > 0 ? 'color-expense' : 'text-neutral'}">{formatRupiah(totalHariIni.pengeluaran)}</strong>
+								</div>
+
+								<button 
+									type="button"
+									class="companion-link-btn" 
+									onclick={() => { activeView = 'report'; switchReportSubTab('mingguan'); }}
+								>
+									<span>Buka Laporan Mingguan Lengkap</span>
+									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+								</button>
+							{:else}
+								<div class="companion-period-info-row">
+									<span class="c-period-text">📅 Bulan {selectedBulan}</span>
+									<span class="companion-count-pill">{rekap.total_transaksi} Transaksi</span>
+								</div>
+
+								<div class="companion-stats-grid">
+									<div class="cstat-item">
+										<span class="cstat-label">Pengeluaran</span>
+										<span class="cstat-val color-expense">{formatRupiah(rekap.total_pengeluaran)}</span>
+									</div>
+									<div class="cstat-item">
+										<span class="cstat-label">Pemasukan</span>
+										<span class="cstat-val color-income">{formatRupiah(rekap.total_pemasukan)}</span>
+									</div>
+								</div>
+
+								<div class="companion-net-row">
+									<span class="cstat-net-lbl">Saldo Bersih</span>
+									<span class="cstat-net-val {rekap.saldo_bersih >= 0 ? 'color-income' : 'color-expense'}">
+										{rekap.saldo_bersih >= 0 ? '+' : ''}{formatRupiah(rekap.saldo_bersih)}
+									</span>
+								</div>
+
+								<div class="companion-today-row">
+									<span>Pengeluaran Hari Ini</span>
+									<strong class="{totalHariIni.pengeluaran > 0 ? 'color-expense' : 'text-neutral'}">{formatRupiah(totalHariIni.pengeluaran)}</strong>
+								</div>
+
+								<button 
+									type="button"
+									class="companion-link-btn" 
+									onclick={() => { activeView = 'report'; switchReportSubTab('bulanan'); }}
+								>
+									<span>Buka Laporan Bulanan Lengkap</span>
+									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+								</button>
+							{/if}
 						</div>
 
 						<!-- Card 2: Catatan Hari Ini (Live Feed) -->
@@ -1784,38 +2127,122 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 				<div class="report-mobile-container">
 					<!-- Control Toolbar -->
 					<div class="report-header-card">
-						<div class="period-picker-row">
-							<button class="btn-arrow-month" onclick={prevMonth} aria-label="Bulan Sebelumnya">
-								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-							</button>
-							<input 
-								type="month" 
-								class="picker-month-native" 
-								bind:value={selectedBulan} 
-								onchange={loadData} 
-							/>
-							<button class="btn-arrow-month" onclick={nextMonth} aria-label="Bulan Berikutnya">
-								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-							</button>
-							<button class="btn-today-pill" onclick={currentMonth}>Bulan Ini</button>
-						</div>
+						{#if reportSubTab === 'bulanan'}
+							<div class="period-picker-row">
+								<button class="btn-arrow-month" onclick={prevMonth} aria-label="Bulan Sebelumnya">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+								</button>
+								<input 
+									type="month" 
+									class="picker-month-native" 
+									bind:value={selectedBulan} 
+									onchange={loadData} 
+								/>
+								<button class="btn-arrow-month" onclick={nextMonth} aria-label="Bulan Berikutnya">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+								</button>
+								<button class="btn-today-pill" onclick={currentMonth}>Bulan Ini</button>
+							</div>
+						{:else if reportSubTab === 'mingguan'}
+							<div class="period-picker-row week-picker-toolbar">
+								<button class="btn-arrow-month" onclick={prevWeek} aria-label="Minggu Sebelumnya" title="Minggu Sebelumnya">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+								</button>
+								<div class="week-picker-input-wrap">
+									<input 
+										type="date" 
+										class="picker-date-native" 
+										bind:value={selectedWeekDate} 
+										onchange={loadData} 
+										title="Pilih tanggal dalam minggu ini"
+									/>
+								</div>
+								<button class="btn-arrow-month" onclick={nextWeek} aria-label="Minggu Berikutnya" title="Minggu Berikutnya">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+								</button>
+								<button class="btn-today-pill" onclick={currentWeek}>Minggu Ini</button>
+							</div>
+						{:else if reportSubTab === 'periode'}
+							<div class="custom-period-control-box">
+								<div class="custom-period-dates">
+									<div class="date-field-group">
+										<label for="inp-custom-start" class="field-label-sm">Dari Tanggal:</label>
+										<input 
+											id="inp-custom-start"
+											type="date" 
+											class="picker-date-native" 
+											bind:value={customStartDate} 
+										/>
+									</div>
+									<span class="date-sep-arrow">→</span>
+									<div class="date-field-group">
+										<label for="inp-custom-end" class="field-label-sm">Sampai Tanggal:</label>
+										<input 
+											id="inp-custom-end"
+											type="date" 
+											class="picker-date-native" 
+											bind:value={customEndDate} 
+										/>
+									</div>
+									<button class="btn-apply-period" onclick={loadData}>
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+										<span>Terapkan</span>
+									</button>
+								</div>
+								<div class="period-presets-scroll">
+									<span class="preset-label-hint">Pintas:</span>
+									<button class="preset-chip-btn" onclick={() => setPeriodPreset('7-hari')}>7 Hari</button>
+									<button class="preset-chip-btn" onclick={() => setPeriodPreset('14-hari')}>14 Hari</button>
+									<button class="preset-chip-btn" onclick={() => setPeriodPreset('30-hari')}>30 Hari</button>
+									<button class="preset-chip-btn" onclick={() => setPeriodPreset('bulan-ini')}>Bulan Ini</button>
+									<button class="preset-chip-btn" onclick={() => setPeriodPreset('bulan-lalu')}>Bulan Lalu</button>
+								</div>
+							</div>
+						{:else if reportSubTab === 'harian'}
+							<div class="period-picker-row">
+								<input 
+									type="date" 
+									class="picker-date-native" 
+									bind:value={selectedTanggal} 
+									onchange={loadData}
+								/>
+								<button 
+									class="btn-today-pill" 
+									onclick={() => { selectedTanggal = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`; loadData(); }}
+								>
+									Hari Ini
+								</button>
+							</div>
+						{/if}
 
 						<div class="sub-segments-row">
 							<button 
 								class="sub-seg-btn {reportSubTab === 'bulanan' ? 'active' : ''}" 
-								onclick={() => reportSubTab = 'bulanan'}
+								onclick={() => switchReportSubTab('bulanan')}
 							>
-								Ikhtisar
+								Bulanan
+							</button>
+							<button 
+								class="sub-seg-btn {reportSubTab === 'mingguan' ? 'active' : ''}" 
+								onclick={() => switchReportSubTab('mingguan')}
+							>
+								Mingguan
+							</button>
+							<button 
+								class="sub-seg-btn {reportSubTab === 'periode' ? 'active' : ''}" 
+								onclick={() => switchReportSubTab('periode')}
+							>
+								Rentang Tanggal
 							</button>
 							<button 
 								class="sub-seg-btn {reportSubTab === 'harian' ? 'active' : ''}" 
-								onclick={() => reportSubTab = 'harian'}
+								onclick={() => switchReportSubTab('harian')}
 							>
 								Harian
 							</button>
 							<button 
 								class="sub-seg-btn {reportSubTab === 'semua' ? 'active' : ''}" 
-								onclick={() => reportSubTab = 'semua'}
+								onclick={() => switchReportSubTab('semua')}
 							>
 								Riwayat ({transaksiList.length})
 							</button>
@@ -1943,7 +2370,419 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						</div>
 					{/if}
 
-					<!-- SUBTAB 2: REKAP HARIAN -->
+					<!-- SUBTAB: LAPORAN MINGGUAN -->
+					{#if reportSubTab === 'mingguan'}
+						<!-- Week Period Banner -->
+						<div class="period-banner-card">
+							<div class="pbc-left">
+								<span class="pbc-icon">📅</span>
+								<div>
+									<div class="pbc-title">Laporan Mingguan</div>
+									<div class="pbc-dates">{formatTglHari(currentWeekRange.start)} — {formatTglHari(currentWeekRange.end)}</div>
+								</div>
+							</div>
+							<button class="btn-csv-mobile" onclick={exportCSV} title="Unduh CSV Transaksi Minggu Ini">
+								<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+								</svg>
+								<span>CSV</span>
+							</button>
+						</div>
+
+						<!-- 4 KPI Cards: Mobile 2x2 Grid -->
+						<div class="kpi-mobile-2x2">
+							<div class="mobile-kpi-item">
+								<div class="kpi-lbl-row">
+									<span class="kpi-lbl">Pengeluaran</span>
+									<span class="dot-badge badge-red">Out</span>
+								</div>
+								<div class="kpi-num color-expense">{formatRupiah(rekap.total_pengeluaran)}</div>
+								<div class="kpi-subt">Minggu Ini</div>
+							</div>
+
+							<div class="mobile-kpi-item">
+								<div class="kpi-lbl-row">
+									<span class="kpi-lbl">Pemasukan</span>
+									<span class="dot-badge badge-green">In</span>
+								</div>
+								<div class="kpi-num color-income">{formatRupiah(rekap.total_pemasukan)}</div>
+								<div class="kpi-subt">Minggu Ini</div>
+							</div>
+
+							<div class="mobile-kpi-item">
+								<div class="kpi-lbl-row">
+									<span class="kpi-lbl">Saldo Bersih</span>
+									<span class="dot-badge {rekap.saldo_bersih >= 0 ? 'badge-green' : 'badge-red'}">
+										{rekap.saldo_bersih >= 0 ? '+' : '-'}
+									</span>
+								</div>
+								<div class="kpi-num {rekap.saldo_bersih >= 0 ? 'color-income' : 'color-expense'}">
+									{formatRupiah(rekap.saldo_bersih)}
+								</div>
+								<div class="kpi-subt">Net Cashflow</div>
+							</div>
+
+							<div class="mobile-kpi-item">
+								<div class="kpi-lbl-row">
+									<span class="kpi-lbl">Total Nota</span>
+									<span class="dot-badge badge-blue">Rec</span>
+								</div>
+								<div class="kpi-num color-blue">{rekap.total_transaksi} Transaksi</div>
+								<div class="kpi-subt">Tercatat</div>
+							</div>
+						</div>
+
+						<!-- 7-Hari Aktivitas Bar Chart (Senin - Minggu) -->
+						<div class="card-mobile-panel">
+							<div class="panel-header">
+								<h3 class="panel-title">Aktivitas 7 Hari (Senin – Minggu)</h3>
+								<p class="panel-sub">Akumulasi pengeluaran harian sepanjang minggu terpilih</p>
+							</div>
+							<div class="week-chart-grid">
+								{#each weekDaysData as day}
+									{@const maxVal = Math.max(...weekDaysData.map((x) => x.pengeluaran), 1)}
+									{@const heightPct = Math.min(100, Math.max(12, (day.pengeluaran / maxVal) * 100))}
+									{@const isToday = day.date === todayTanggal}
+									<div class="week-day-card {isToday ? 'is-today-day' : ''}" title="{day.dayFull}, {day.date}: Pengeluaran {formatRupiah(day.pengeluaran)} ({day.count} transaksi)">
+										<div class="wdc-nominal">{day.pengeluaran > 0 ? (day.pengeluaran >= 1000000 ? (day.pengeluaran/1000000).toFixed(1) + 'jt' : (day.pengeluaran/1000).toFixed(0) + 'rb') : '-'}</div>
+										<div class="wdc-bar-track">
+											<div class="wdc-bar-fill {day.pengeluaran > 0 ? 'fill-has-val' : ''}" style="height: {day.pengeluaran > 0 ? heightPct : 6}%"></div>
+										</div>
+										<span class="wdc-day-name">{day.dayShort}</span>
+										<span class="wdc-day-num {isToday ? 'active-today-pill' : ''}">{day.dayNum}</span>
+									</div>
+								{/each}
+							</div>
+						</div>
+
+						<!-- DESKTOP SPLIT: KATEGORI & TOKO -->
+						<div class="report-desktop-split">
+							<div class="report-chart-column">
+								<div class="card-mobile-panel">
+									<h3 class="panel-title">Kategori Belanja Mingguan</h3>
+									{#if rekap.rekap_kategori && rekap.rekap_kategori.length > 0}
+										<div class="category-bars-col">
+											{#each rekap.rekap_kategori as cat}
+												{@const pct = rekap.total_pengeluaran > 0 ? Math.round((cat.total / rekap.total_pengeluaran) * 100) : 0}
+												<div class="cat-bar-item">
+													<div class="cat-bar-header">
+														<span class="cat-title">{cat.kategori}</span>
+														<span class="cat-sum">{formatRupiah(cat.total)} ({pct}%)</span>
+													</div>
+													<div class="cat-track">
+														<div class="cat-fill" style="width: {pct}%"></div>
+													</div>
+												</div>
+											{/each}
+										</div>
+									{:else}
+										<div class="empty-panel-text"><p>Belum ada data kategori minggu ini.</p></div>
+									{/if}
+								</div>
+							</div>
+
+							<div class="report-side-column">
+								<div class="card-mobile-panel">
+									<h3 class="panel-title">Toko / Merchant Terbanyak</h3>
+									{#if rekap.top_merchant && rekap.top_merchant.length > 0}
+										<div class="merchant-mini-list">
+											{#each rekap.top_merchant as m, i}
+												<div class="merchant-mini-row">
+													<div class="m-rank">{i + 1}</div>
+													<div class="m-info">
+														<span class="m-name">{m.toko}</span>
+														<span class="m-cnt">{m.count} transaksi</span>
+													</div>
+													<span class="m-tot">{formatRupiah(m.total)}</span>
+												</div>
+											{/each}
+										</div>
+									{:else}
+										<div class="empty-panel-text"><p>Belum ada merchant tercatat minggu ini.</p></div>
+									{/if}
+								</div>
+							</div>
+						</div>
+
+						<!-- Daftar Transaksi Minggu Ini -->
+						<div class="card-mobile-panel">
+							<div class="search-and-export">
+								<h3 class="panel-title">Daftar Transaksi Minggu Ini ({filteredTransaksi.length})</h3>
+								<button class="btn-csv-mobile" onclick={exportCSV}>
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+									</svg>
+									<span>CSV</span>
+								</button>
+							</div>
+
+							<div class="mobile-filter-pills mt-2">
+								<select bind:value={filterTipe} class="native-filter-select">
+									<option value="">Semua Tipe</option>
+									<option value="pengeluaran">Pengeluaran</option>
+									<option value="pemasukan">Pemasukan</option>
+								</select>
+								<select bind:value={filterKategori} class="native-filter-select">
+									<option value="">Semua Kategori</option>
+									{#each KATEGORI_OPTIONS as k}
+										<option value={k}>{k}</option>
+									{/each}
+								</select>
+							</div>
+
+							{#if filteredTransaksi.length > 0}
+								<div class="mobile-cards-stream mt-2">
+									{#each filteredTransaksi as t}
+										<div 
+											class="mobile-tx-entry" 
+											onclick={() => openDetail(t.id)} 
+											onkeydown={(e) => { if (e.key === 'Enter') openDetail(t.id); }} 
+											role="button" 
+											tabindex="0"
+										>
+											<div class="entry-icon {t.tipe === 'pemasukan' ? 'icon-green' : 'icon-red'}">
+												{#if t.tipe === 'pemasukan'}
+													<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+														<path d="M12 5v14M19 12l-7 7-7-7"/>
+													</svg>
+												{:else}
+													<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+														<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>
+													</svg>
+												{/if}
+											</div>
+											<div class="entry-core">
+												<div class="entry-row-top">
+													<span class="entry-merchant">{t.toko || (t.tipe === 'pemasukan' ? 'Pemasukan' : 'Transaksi')}</span>
+													<span class="entry-amount {t.tipe === 'pemasukan' ? 'color-income' : 'color-expense'}">
+														{t.tipe === 'pemasukan' ? '+' : '-'} {formatRupiah(t.total)}
+													</span>
+												</div>
+												<div class="entry-row-sub">
+													<span>{formatTgl(t.tanggal)} • {t.waktu?.slice(0, 5)} • {t.kategori} • {t.metode_bayar}</span>
+												</div>
+											</div>
+										</div>
+									{/each}
+								</div>
+							{:else}
+								<div class="empty-panel-text"><p>Tidak ada transaksi pada minggu ini.</p></div>
+							{/if}
+						</div>
+					{/if}
+
+					<!-- SUBTAB: LAPORAN RENTANG PERIODE TANGGAL KUSTOM -->
+					{#if reportSubTab === 'periode'}
+						<!-- Period Banner -->
+						<div class="period-banner-card">
+							<div class="pbc-left">
+								<span class="pbc-icon">🗓️</span>
+								<div>
+									<div class="pbc-title">Laporan Periode Tanggal</div>
+									<div class="pbc-dates">{formatTgl(customStartDate)} s/d {formatTgl(customEndDate)} • {calculateDayDiff(customStartDate, customEndDate)} Hari</div>
+								</div>
+							</div>
+							<button class="btn-csv-mobile" onclick={exportCSV} title="Unduh CSV Transaksi Periode Ini">
+								<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+								</svg>
+								<span>CSV</span>
+							</button>
+						</div>
+
+						<!-- 4 KPI Cards: Mobile 2x2 Grid -->
+						<div class="kpi-mobile-2x2">
+							<div class="mobile-kpi-item">
+								<div class="kpi-lbl-row">
+									<span class="kpi-lbl">Pengeluaran</span>
+									<span class="dot-badge badge-red">Out</span>
+								</div>
+								<div class="kpi-num color-expense">{formatRupiah(rekap.total_pengeluaran)}</div>
+								<div class="kpi-subt">Total Periode</div>
+							</div>
+
+							<div class="mobile-kpi-item">
+								<div class="kpi-lbl-row">
+									<span class="kpi-lbl">Pemasukan</span>
+									<span class="dot-badge badge-green">In</span>
+								</div>
+								<div class="kpi-num color-income">{formatRupiah(rekap.total_pemasukan)}</div>
+								<div class="kpi-subt">Total Periode</div>
+							</div>
+
+							<div class="mobile-kpi-item">
+								<div class="kpi-lbl-row">
+									<span class="kpi-lbl">Saldo Bersih</span>
+									<span class="dot-badge {rekap.saldo_bersih >= 0 ? 'badge-green' : 'badge-red'}">
+										{rekap.saldo_bersih >= 0 ? '+' : '-'}
+									</span>
+								</div>
+								<div class="kpi-num {rekap.saldo_bersih >= 0 ? 'color-income' : 'color-expense'}">
+									{formatRupiah(rekap.saldo_bersih)}
+								</div>
+								<div class="kpi-subt">Net Cashflow</div>
+							</div>
+
+							<div class="mobile-kpi-item">
+								<div class="kpi-lbl-row">
+									<span class="kpi-lbl">Total Nota</span>
+									<span class="dot-badge badge-blue">Rec</span>
+								</div>
+								<div class="kpi-num color-blue">{rekap.total_transaksi} Transaksi</div>
+								<div class="kpi-subt">Dalam Periode</div>
+							</div>
+						</div>
+
+						<!-- DESKTOP SPLIT: TREN CHART vs KATEGORI & TOKO -->
+						<div class="report-desktop-split">
+							<div class="report-chart-column">
+								<div class="card-mobile-panel">
+									<div class="panel-header">
+										<h3 class="panel-title">Tren Pengeluaran Harian</h3>
+										<p class="panel-sub">Akumulasi pengeluaran harian sepanjang rentang periode</p>
+									</div>
+
+									{#if rekap.tren_harian && rekap.tren_harian.length > 0}
+										<div class="chart-mobile-scroll">
+											{#each rekap.tren_harian as item}
+												{@const maxVal = Math.max(...rekap.tren_harian.map((x) => x.pengeluaran), 1)}
+												{@const heightPct = Math.min(100, Math.max(12, (item.pengeluaran / maxVal) * 100))}
+												<div class="chart-col-touch" title="{item.tanggal}: {formatRupiah(item.pengeluaran)}">
+													<div class="touch-bar-track">
+														<div class="touch-bar-fill" style="height: {heightPct}%"></div>
+													</div>
+													<span class="touch-date">{item.tanggal.slice(8)}</span>
+												</div>
+											{/each}
+										</div>
+									{:else}
+										<div class="empty-panel-text"><p>Belum ada data transaksi dalam periode ini.</p></div>
+									{/if}
+								</div>
+							</div>
+
+							<div class="report-side-column">
+								<div class="card-mobile-panel">
+									<h3 class="panel-title">Kategori Belanja</h3>
+									{#if rekap.rekap_kategori && rekap.rekap_kategori.length > 0}
+										<div class="category-bars-col">
+											{#each rekap.rekap_kategori as cat}
+												{@const pct = rekap.total_pengeluaran > 0 ? Math.round((cat.total / rekap.total_pengeluaran) * 100) : 0}
+												<div class="cat-bar-item">
+													<div class="cat-bar-header">
+														<span class="cat-title">{cat.kategori}</span>
+														<span class="cat-sum">{formatRupiah(cat.total)} ({pct}%)</span>
+													</div>
+													<div class="cat-track">
+														<div class="cat-fill" style="width: {pct}%"></div>
+													</div>
+												</div>
+											{/each}
+										</div>
+									{:else}
+										<div class="empty-panel-text"><p>Belum ada data kategori dalam periode ini.</p></div>
+									{/if}
+								</div>
+
+								<div class="card-mobile-panel">
+									<h3 class="panel-title">Toko / Merchant Terbanyak</h3>
+									{#if rekap.top_merchant && rekap.top_merchant.length > 0}
+										<div class="merchant-mini-list">
+											{#each rekap.top_merchant as m, i}
+												<div class="merchant-mini-row">
+													<div class="m-rank">{i + 1}</div>
+													<div class="m-info">
+														<span class="m-name">{m.toko}</span>
+														<span class="m-cnt">{m.count} transaksi</span>
+													</div>
+													<span class="m-tot">{formatRupiah(m.total)}</span>
+												</div>
+											{/each}
+										</div>
+									{:else}
+										<div class="empty-panel-text"><p>Belum ada merchant tercatat dalam periode ini.</p></div>
+									{/if}
+								</div>
+							</div>
+						</div>
+
+						<!-- Daftar Transaksi Periode Ini -->
+						<div class="card-mobile-panel">
+							<div class="search-and-export">
+								<div class="mobile-search-bar">
+									<svg class="search-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+										<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+									</svg>
+									<input 
+										type="text" 
+										placeholder="Cari toko / catatan dalam periode..." 
+										bind:value={searchQuery} 
+									/>
+								</div>
+								<button class="btn-csv-mobile" onclick={exportCSV}>
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+									</svg>
+									<span>CSV</span>
+								</button>
+							</div>
+
+							<div class="mobile-filter-pills mt-2">
+								<select bind:value={filterTipe} class="native-filter-select">
+									<option value="">Semua Tipe</option>
+									<option value="pengeluaran">Pengeluaran</option>
+									<option value="pemasukan">Pemasukan</option>
+								</select>
+								<select bind:value={filterKategori} class="native-filter-select">
+									<option value="">Semua Kategori</option>
+									{#each KATEGORI_OPTIONS as k}
+										<option value={k}>{k}</option>
+									{/each}
+								</select>
+							</div>
+
+							{#if filteredTransaksi.length > 0}
+								<div class="mobile-cards-stream mt-2">
+									{#each filteredTransaksi as t}
+										<div 
+											class="mobile-tx-entry" 
+											onclick={() => openDetail(t.id)} 
+											onkeydown={(e) => { if (e.key === 'Enter') openDetail(t.id); }} 
+											role="button" 
+											tabindex="0"
+										>
+											<div class="entry-icon {t.tipe === 'pemasukan' ? 'icon-green' : 'icon-red'}">
+												{#if t.tipe === 'pemasukan'}
+													<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+														<path d="M12 5v14M19 12l-7 7-7-7"/>
+													</svg>
+												{:else}
+													<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+														<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>
+													</svg>
+												{/if}
+											</div>
+											<div class="entry-core">
+												<div class="entry-row-top">
+													<span class="entry-merchant">{t.toko || (t.tipe === 'pemasukan' ? 'Pemasukan' : 'Transaksi')}</span>
+													<span class="entry-amount {t.tipe === 'pemasukan' ? 'color-income' : 'color-expense'}">
+														{t.tipe === 'pemasukan' ? '+' : '-'} {formatRupiah(t.total)}
+													</span>
+												</div>
+												<div class="entry-row-sub">
+													<span>{formatTgl(t.tanggal)} • {t.waktu?.slice(0, 5)} • {t.kategori} • {t.metode_bayar}</span>
+												</div>
+											</div>
+										</div>
+									{/each}
+								</div>
+							{:else}
+								<div class="empty-panel-text"><p>Tidak ada transaksi dalam periode ini.</p></div>
+							{/if}
+						</div>
+					{/if}
+
+					<!-- SUBTAB 4: REKAP HARIAN -->
 					{#if reportSubTab === 'harian'}
 						<div class="card-mobile-panel">
 							<div class="daily-picker-box">
@@ -2185,13 +3024,20 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							</a>
 						{/if}
 
-						{#if canInstallPWA}
+						{#if !isAppStandalone}
 							<button class="btn-install-pwa-sheet" onclick={triggerPWAInstall}>
 								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 									<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
 								</svg>
 								<span>Pasang CatatAi ke Layar Utama (PWA)</span>
 							</button>
+						{:else}
+							<div class="installed-pwa-badge">
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+									<polyline points="20 6 9 17 4 12"/>
+								</svg>
+								<span>CatatAi terpasang di perangkat Anda (PWA)</span>
+							</div>
 						{/if}
 		
 
@@ -4304,6 +5150,47 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		border-top: 1px solid #e6ded3;
 		padding-bottom: env(safe-area-inset-bottom, 8px);
 	}
+	.chat-quick-shortcuts {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.45rem 0.75rem 0.15rem;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: none;
+	}
+	.chat-quick-shortcuts::-webkit-scrollbar {
+		display: none;
+	}
+	.quick-chip-btn {
+		background: #ffffff;
+		border: 1px solid #ded6c9;
+		color: #4a4237;
+		font-size: 0.74rem;
+		font-weight: 700;
+		padding: 0.3rem 0.65rem;
+		border-radius: 9999px;
+		white-space: nowrap;
+		cursor: pointer;
+		box-shadow: 0 1px 2px rgba(35, 31, 28, 0.04);
+		transition: all 0.15s;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+	.quick-chip-btn:hover {
+		background: #fdfaf5;
+		border-color: #059669;
+		color: #059669;
+		transform: translateY(-1px);
+	}
+	.quick-chip-btn:active {
+		transform: scale(0.96);
+	}
+	.brand-kpi-divider {
+		margin: 0 0.3rem;
+		opacity: 0.45;
+	}
 	.dock-form-row {
 		padding: 0.55rem 0.75rem;
 		display: flex;
@@ -4417,22 +5304,246 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		padding: 0.2rem;
 		border-radius: 8px;
 		border: 1px solid #ddd5c7;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: none;
+	}
+	.sub-segments-row::-webkit-scrollbar {
+		display: none;
 	}
 	.sub-seg-btn {
 		flex: 1;
+		min-width: max-content;
+		white-space: nowrap;
 		background: transparent;
 		color: #6d6459;
-		padding: 0.35rem 0.4rem;
+		padding: 0.35rem 0.55rem;
 		border-radius: 6px;
 		font-weight: 700;
 		font-size: 0.78rem;
 		text-align: center;
 		transition: all 0.15s;
+		cursor: pointer;
 	}
 	.sub-seg-btn.active {
 		background: #ffffff;
 		color: #231f1c;
 		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.06);
+	}
+
+	/* Week & Custom Period Toolbars */
+	.week-picker-toolbar {
+		width: 100%;
+	}
+	.week-picker-input-wrap {
+		flex: 1;
+		display: flex;
+	}
+	.picker-date-native {
+		width: 100%;
+		border: 1px solid #ded5c8;
+		background: #faf7f2;
+		padding: 0.35rem 0.5rem;
+		border-radius: 6px;
+		font-weight: 700;
+		font-size: 0.85rem;
+		color: #231f1c;
+	}
+
+	.custom-period-control-box {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		width: 100%;
+	}
+	.custom-period-dates {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		flex-wrap: wrap;
+	}
+	.date-field-group {
+		flex: 1;
+		min-width: 120px;
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+	}
+	.field-label-sm {
+		font-size: 0.68rem;
+		font-weight: 700;
+		color: #6b6357;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+	}
+	.date-sep-arrow {
+		font-size: 0.95rem;
+		color: #8c8273;
+		font-weight: 700;
+		margin-top: 1rem;
+	}
+	.btn-apply-period {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		background: #231f1c;
+		color: #f7f4ee;
+		border: none;
+		border-radius: 6px;
+		font-weight: 700;
+		font-size: 0.78rem;
+		padding: 0.45rem 0.85rem;
+		margin-top: 0.95rem;
+		cursor: pointer;
+		transition: background 0.15s;
+		white-space: nowrap;
+	}
+	.btn-apply-period:hover {
+		background: #3b352e;
+	}
+	.period-presets-scroll {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: none;
+		padding: 0.1rem 0;
+	}
+	.period-presets-scroll::-webkit-scrollbar {
+		display: none;
+	}
+	.preset-label-hint {
+		font-size: 0.7rem;
+		font-weight: 700;
+		color: #8c8273;
+		white-space: nowrap;
+	}
+	.preset-chip-btn {
+		background: #f4eee4;
+		border: 1px solid #e2dad0;
+		border-radius: 9999px;
+		padding: 0.2rem 0.55rem;
+		font-size: 0.68rem;
+		font-weight: 600;
+		color: #524a3e;
+		white-space: nowrap;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+	.preset-chip-btn:hover {
+		background: #eae1d3;
+		color: #231f1c;
+		border-color: #cbbead;
+	}
+
+	.period-banner-card {
+		background: #ffffff;
+		border: 1px solid #e6ded3;
+		border-radius: 12px;
+		padding: 0.75rem 0.85rem;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.03);
+	}
+	.pbc-left {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+	}
+	.pbc-icon {
+		font-size: 1.35rem;
+		line-height: 1;
+	}
+	.pbc-title {
+		font-size: 0.85rem;
+		font-weight: 800;
+		color: #231f1c;
+		font-family: 'Outfit', sans-serif;
+	}
+	.pbc-dates {
+		font-size: 0.72rem;
+		color: #7c746a;
+		font-weight: 500;
+	}
+
+	/* Week 7-Day Chart Grid */
+	.week-chart-grid {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+		gap: 0.35rem;
+		padding-top: 0.4rem;
+	}
+	.week-day-card {
+		background: #faf7f2;
+		border: 1px solid #eae3d6;
+		border-radius: 10px;
+		padding: 0.5rem 0.25rem 0.4rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.35rem;
+		transition: transform 0.15s, box-shadow 0.15s;
+	}
+	.week-day-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 3px 8px rgba(35, 31, 28, 0.06);
+	}
+	.week-day-card.is-today-day {
+		background: #fff8f0;
+		border-color: #fed7aa;
+	}
+	.wdc-nominal {
+		font-size: 0.62rem;
+		font-weight: 700;
+		color: #7c746a;
+		height: 14px;
+		line-height: 14px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 100%;
+	}
+	.wdc-bar-track {
+		width: 12px;
+		height: 85px;
+		background: #eae2d5;
+		border-radius: 9999px;
+		display: flex;
+		align-items: flex-end;
+		overflow: hidden;
+	}
+	.wdc-bar-fill {
+		width: 100%;
+		background: #d5cbbe;
+		border-radius: 9999px;
+		transition: height 0.3s ease;
+	}
+	.wdc-bar-fill.fill-has-val {
+		background: linear-gradient(180deg, #ef4444 0%, #f97316 100%);
+	}
+	.wdc-day-name {
+		font-size: 0.65rem;
+		font-weight: 700;
+		color: #635b4f;
+		text-transform: uppercase;
+	}
+	.wdc-day-num {
+		font-size: 0.72rem;
+		font-weight: 800;
+		color: #231f1c;
+		width: 22px;
+		height: 22px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 9999px;
+	}
+	.wdc-day-num.active-today-pill {
+		background: #231f1c;
+		color: #ffffff;
 	}
 
 	.kpi-mobile-2x2 {
@@ -4691,6 +5802,19 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		transition: background 0.15s;
 	}
 	.btn-install-pwa-sheet:active { background: #d1fae5; }
+	.installed-pwa-badge {
+		background: #f0fdf4;
+		border: 1.5px solid #bbf7d0;
+		color: #166534;
+		font-weight: 600;
+		padding: 0.65rem 0.85rem;
+		border-radius: 10px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		font-size: 0.82rem;
+	}
 
 	.btn-logout-full {
 		background: #fff5f5;
@@ -5152,6 +6276,69 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			padding: 0.15rem 0.55rem;
 			border-radius: 9999px;
 		}
+		.companion-switch-pill {
+			display: flex;
+			background: #eae3d6;
+			padding: 0.15rem;
+			border-radius: 9999px;
+			border: 1px solid #ddd5c7;
+		}
+		.c-switch-btn {
+			background: transparent;
+			border: none;
+			color: #6d6459;
+			font-size: 0.7rem;
+			font-weight: 700;
+			padding: 0.2rem 0.55rem;
+			border-radius: 9999px;
+			cursor: pointer;
+			transition: all 0.15s;
+		}
+		.c-switch-btn.active {
+			background: #ffffff;
+			color: #231f1c;
+			box-shadow: 0 1px 3px rgba(35, 31, 28, 0.08);
+		}
+		.companion-period-info-row {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			font-size: 0.72rem;
+			color: #7c746a;
+		}
+		.c-period-text {
+			font-weight: 600;
+		}
+		.companion-count-pill {
+			background: #f4eee4;
+			border: 1px solid #e6ded3;
+			padding: 0.15rem 0.45rem;
+			border-radius: 9999px;
+			font-weight: 700;
+			font-size: 0.68rem;
+			color: #554d42;
+		}
+		.companion-link-btn {
+			margin-top: 0.25rem;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			gap: 0.35rem;
+			background: #fdfbf7;
+			border: 1px dashed #ded5c8;
+			color: #059669;
+			font-size: 0.78rem;
+			font-weight: 700;
+			padding: 0.45rem 0.75rem;
+			border-radius: 10px;
+			cursor: pointer;
+			transition: all 0.15s;
+		}
+		.companion-link-btn:hover {
+			background: #ecfdf5;
+			border-color: #a7f3d0;
+			border-style: solid;
+		}
 
 		.companion-stats-grid {
 			display: grid;
@@ -5309,16 +6496,43 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 		.report-header-card {
 			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			padding: 0.85rem 1.4rem;
+			flex-direction: column;
+			gap: 0.85rem;
+			padding: 1.1rem 1.4rem;
 			border-radius: 16px;
 		}
 		.period-picker-row {
 			margin-bottom: 0;
+			max-width: 480px;
 		}
 		.sub-segments-row {
-			min-width: 380px;
+			width: 100%;
+			max-width: 680px;
+		}
+		.custom-period-control-box {
+			flex-direction: row;
+			align-items: center;
+			justify-content: space-between;
+			gap: 1rem;
+		}
+		.custom-period-dates {
+			flex-wrap: nowrap;
+			flex: 1;
+			max-width: 520px;
+		}
+		.week-chart-grid {
+			gap: 0.65rem;
+			padding: 0.75rem 0.25rem 0.25rem;
+		}
+		.wdc-bar-track {
+			width: 18px;
+			height: 120px;
+		}
+		.week-day-card {
+			padding: 0.75rem 0.5rem 0.6rem;
+		}
+		.wdc-nominal {
+			font-size: 0.72rem;
 		}
 
 		/* 4 KPI Cards: Horizontal 4-Column Strip */
