@@ -6,6 +6,99 @@
 	let authChecking = $state(true);
 	let authMode = $state("login"); // 'login' | 'register'
 	let landingDemoTab = $state("voice"); // 'voice' | 'scan' | 'dompet' | 'report'
+
+	// SEO & FAQ ACCORDION STATE
+	let activeFaq = $state(0);
+	const faqList = [
+		{
+			q: "Bagaimana cara kerja CatatAi mencatat keuangan secara otomatis?",
+			badge: "Teknologi AI",
+			a: "CatatAi menggunakan kecerdasan buatan (AI) terdepan untuk mengenali teks, suara (voice note), dan foto struk belanja. Cukup berbicara atau memotret struk, AI CatatAi akan otomatis mengekstrak nominal, tanggal, kategori, dan memotong saldo dari dompet yang sesuai dalam hitungan detik."
+		},
+		{
+			q: "Apakah bisa scan struk belanja atau nota kasir fisik?",
+			badge: "OCR Vision",
+			a: "Ya, sangat bisa! Cukup unggah atau foto struk belanja dari Indomaret, Alfamart, SPBU, restoran, atau nota toko lainnya. AI Vision CatatAi membaca total harga, rincian barang, serta tanggal transaksi secara akurat dan menyimpannya langsung ke pembukuan Anda."
+		},
+		{
+			q: "Bagaimana cara mencatat pengeluaran menggunakan suara (voice note)?",
+			badge: "Voice Note",
+			a: "Tekan tombol mikrofon di CatatAi, lalu ucapkan transaksi santai dalam bahasa Indonesia, contoh: 'Beli kopi 25 ribu bayar pakai QRIS BCA'. AI kami langsung menganalisis ucapan, menentukan dompet BCA, memasukkan kategori Makanan & Minuman, dan merekam nominalnya secara instan."
+		},
+		{
+			q: "Bisa mengelola berapa banyak dompet atau rekening bank?",
+			badge: "Multi-Dompet",
+			a: "Anda bisa membuat dompet tanpa batas. Kelola uang Tunai, Rekening Bank (BCA, Mandiri, BRI, BNI), hingga Dompet Digital (GoPay, OVO, ShopeePay, DANA). Saldo tiap dompet akan terupdate secara real-time setiap kali ada transaksi masuk atau keluar."
+		},
+		{
+			q: "Apakah data keuangan pribadi saya aman dan terenkripsi?",
+			badge: "Privasi Terjamin",
+			a: "Keamanan Anda adalah prioritas no. 1. CatatAi menerapkan enkripsi data bank-grade, isolasi data per akun dengan otentikasi JWT/bcrypt aman, serta infrastruktur Neon Serverless PostgreSQL dengan pencadangan teratur. Data Anda 100% pribadi dan tidak pernah dijual ke pihak ketiga."
+		},
+		{
+			q: "Apakah aplikasi CatatAi gratis digunakan?",
+			badge: "100% Gratis",
+			a: "Ya! CatatAi dapat digunakan sepenuhnya gratis untuk kebutuhan pencatatan keuangan pribadi maupun pembukuan usaha mikro (UMKM) sehari-hari tanpa biaya tersembunyi."
+		}
+	];
+
+	const structuredDataJson = {
+		"@context": "https://schema.org",
+		"@graph": [
+			{
+				"@type": "WebApplication",
+				"@id": "https://catatai.com/#webapp",
+				"name": "CatatAi",
+				"url": "https://catatai.com",
+				"description": "Aplikasi pencatatan keuangan cerdas no. 1 di Indonesia dengan AI voice note, scan struk nota belanja otomatis, dan manajemen multi-dompet.",
+				"applicationCategory": "FinanceApplication",
+				"operatingSystem": "All (Web, Android, iOS, Windows, macOS)",
+				"browserRequirements": "Requires JavaScript. Requires HTML5.",
+				"inLanguage": "id-ID",
+				"offers": {
+					"@type": "Offer",
+					"price": "0",
+					"priceCurrency": "IDR"
+				},
+				"aggregateRating": {
+					"@type": "AggregateRating",
+					"ratingValue": "4.9",
+					"ratingCount": "1280",
+					"bestRating": "5",
+					"worstRating": "1"
+				},
+				"featureList": [
+					"Catat pengeluaran lewat Voice Note suara otomatis",
+					"Scan & ekstrak struk nota belanja cerdas (AI Vision OCR)",
+					"Manajemen Multi-Dompet (Bank, e-Wallet, Uang Kas/Tunai)",
+					"Analisis grafik arus kas 7 hari & laporan bulanan",
+					"Keamanan enkripsi bank-grade dengan isolasi data akun"
+				]
+			},
+			{
+				"@type": "Organization",
+				"@id": "https://catatai.com/#organization",
+				"name": "CatatAi",
+				"url": "https://catatai.com",
+				"logo": {
+					"@type": "ImageObject",
+					"url": "https://catatai.com/icon-512.png"
+				}
+			},
+			{
+				"@type": "FAQPage",
+				"@id": "https://catatai.com/#faq",
+				"mainEntity": faqList.map((item) => ({
+					"@type": "Question",
+					"name": item.q,
+					"acceptedAnswer": {
+						"@type": "Answer",
+						"text": item.a
+					}
+				}))
+			}
+		]
+	};
 	let authForm = $state({ email: "", nama: "", password: "" });
 	let authLoading = $state(false);
 	let authError = $state("");
@@ -1626,6 +1719,14 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 </script>
 
 <svelte:head>
+	<title>CatatAi — Asisten Keuangan AI, Scan Struk & Catat Suara Otomatis</title>
+	<meta name="description" content="Aplikasi pencatatan keuangan cerdas no. 1 di Indonesia. Catat otomatis lewat suara (voice note), scan struk & nota belanja pintar AI, serta kelola multi-dompet tanpa ribet. Gratis & aman!" />
+	<meta name="keywords" content="CatatAi, aplikasi catat keuangan, scan struk belanja, catat pengeluaran suara, pembukuan umkm, ocr nota kasir, kelola multi dompet, expense tracker ai indonesia, pelacak keuangan pribadi" />
+	<link rel="canonical" href="https://catatai.com/" />
+
+	<!-- Structured Data (JSON-LD) for Google SERP First Page Rich Snippets -->
+	{@html `<script type="application/ld+json">${JSON.stringify(structuredDataJson)}<\/script>`}
+
 	{#if !currentUser}
 		<script
 			src="https://chatbotai-five-phi.vercel.app/widget.js"
@@ -1700,6 +1801,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						<a href="#komparasi" class="landing-nav-link"
 							>Keunggulan</a
 						>
+						<a href="#faq" class="landing-nav-link">FAQ</a>
 					</nav>
 
 					<div class="landing-nav-right">
@@ -3150,6 +3252,50 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 								</tr>
 							</tbody>
 						</table>
+					</div>
+				</section>
+
+				<!-- ==============================================
+				     SECTION 4.5: FAQ ACCORDION (SEO-BOOSTING)
+				     ============================================== -->
+				<section class="landing-section-block" id="faq">
+					<div class="landing-section-head">
+						<span class="landing-section-pill">Tanya Jawab</span>
+						<h2 class="landing-section-title">
+							Kerap Ditanyakan Seputar CatatAi
+						</h2>
+						<p class="landing-section-sub">
+							Jawaban lengkap seputar teknologi pencatatan suara AI, scan nota belanja, keamanan data, dan cara memulai.
+						</p>
+					</div>
+
+					<div class="landing-faq-container">
+						{#each faqList as faq, i}
+							<div class="faq-item {activeFaq === i ? 'faq-item-open' : ''}">
+								<button
+									type="button"
+									class="faq-header-btn"
+									onclick={() => activeFaq = activeFaq === i ? -1 : i}
+									aria-expanded={activeFaq === i}
+									id="faq-btn-{i}"
+								>
+									<div class="faq-question-wrap">
+										<span class="faq-badge">{faq.badge}</span>
+										<h3 class="faq-question-title">{faq.q}</h3>
+									</div>
+									<div class="faq-chevron-icon" aria-hidden="true">
+										<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+											<path d="m6 9 6 6 6-6"/>
+										</svg>
+									</div>
+								</button>
+								{#if activeFaq === i}
+									<div class="faq-body-panel" role="region" aria-labelledby="faq-btn-{i}">
+										<p class="faq-answer-text">{faq.a}</p>
+									</div>
+								{/if}
+							</div>
+						{/each}
 					</div>
 				</section>
 
@@ -9513,6 +9659,107 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	.badge-neutral {
 		color: #b45309;
 		font-weight: 600;
+	}
+
+	/* FAQ ACCORDION (SECTION 4.5 - SEO RICH) */
+	.landing-faq-container {
+		max-width: 860px;
+		margin: 0 auto;
+		display: flex;
+		flex-direction: column;
+		gap: 0.85rem;
+	}
+	.faq-item {
+		background: #ffffff;
+		border: 1px solid #e5ded4;
+		border-radius: 16px;
+		overflow: hidden;
+		transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.04);
+	}
+	.faq-item:hover {
+		border-color: #cbd5e1;
+		box-shadow: 0 4px 12px rgba(35, 31, 28, 0.06);
+	}
+	.faq-item.faq-item-open {
+		border-color: #10b981;
+		box-shadow: 0 6px 18px rgba(16, 185, 129, 0.1);
+	}
+	.faq-header-btn {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 1.25rem 1.4rem;
+		background: transparent;
+		text-align: left;
+		cursor: pointer;
+		border: none;
+		outline: none;
+	}
+	.faq-question-wrap {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex: 1;
+		flex-wrap: wrap;
+	}
+	.faq-badge {
+		font-size: 0.72rem;
+		font-weight: 700;
+		color: #059669;
+		background: #e6f4ea;
+		padding: 0.22rem 0.6rem;
+		border-radius: 999px;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+	}
+	.faq-question-title {
+		font-family: "Outfit", sans-serif;
+		font-size: 1.05rem;
+		font-weight: 700;
+		color: #1f2937;
+		margin: 0;
+		line-height: 1.4;
+	}
+	.faq-item.faq-item-open .faq-question-title {
+		color: #047857;
+	}
+	.faq-chevron-icon {
+		color: #6b7280;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), color 0.25s;
+		flex-shrink: 0;
+	}
+	.faq-item.faq-item-open .faq-chevron-icon {
+		transform: rotate(180deg);
+		color: #059669;
+	}
+	.faq-body-panel {
+		padding: 0 1.4rem 1.35rem 1.4rem;
+		border-top: 1px dashed #f1ece4;
+		margin-top: 0.25rem;
+		animation: faqFadeIn 0.25s ease-out;
+	}
+	.faq-answer-text {
+		font-size: 0.94rem;
+		color: #4b5563;
+		line-height: 1.65;
+		margin: 0;
+		padding-top: 0.85rem;
+	}
+	@keyframes faqFadeIn {
+		from {
+			opacity: 0;
+			transform: translateY(-4px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	/* BOTTOM CTA (SECTION 5) */

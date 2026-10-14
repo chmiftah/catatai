@@ -1,3 +1,9 @@
-# allow crawling everything by default
+# https://www.robotstxt.org/robotstxt.html
 User-agent: *
-Disallow:
+Allow: /
+Disallow: /api/
+Disallow: /admin
+
+# Host & Sitemap
+Host: https://catatai.com
+Sitemap: https://catatai.com/sitemap.xml

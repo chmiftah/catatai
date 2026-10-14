@@ -12,10 +12,10 @@
 </script>
 
 <svelte:head>
-	<title>CatatAi — Pencatatan Transaksi & Nota</title>
+	<title>CatatAi — Asisten Keuangan AI, Scan Struk & Catat Suara Otomatis</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 	<meta name="theme-color" content="#faf6f0" />
-	<meta name="description" content="Pencatatan keuangan cerdas, scan nota AI, dan rekap transaksi otomatis" />
+	<meta name="description" content="Aplikasi pencatatan keuangan cerdas no. 1 di Indonesia. Catat otomatis lewat suara (voice note), scan struk & nota belanja pintar AI, serta kelola multi-dompet tanpa ribet. Gratis & aman!" />
 	
 	<!-- PWA Settings -->
 	<link rel="manifest" href="/manifest.webmanifest" />
