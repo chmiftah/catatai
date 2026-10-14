@@ -1,13 +1,14 @@
 <script>
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick } from "svelte";
 
 	// AUTH STATE
 	let currentUser = $state(null);
 	let authChecking = $state(true);
-	let authMode = $state('login'); // 'login' | 'register'
-	let authForm = $state({ email: '', nama: '', password: '' });
+	let authMode = $state("login"); // 'login' | 'register'
+	let landingDemoTab = $state("voice"); // 'voice' | 'scan' | 'dompet' | 'report'
+	let authForm = $state({ email: "", nama: "", password: "" });
 	let authLoading = $state(false);
-	let authError = $state('');
+	let authError = $state("");
 	let showPassword = $state(false);
 
 	// PROFILE MODAL
@@ -19,24 +20,34 @@
 	let isAppStandalone = $state(false);
 
 	// Navigasi Utama: Hanya 2 Tombol ('chat' | 'report')
-	let activeView = $state('chat'); // 'chat' (default) | 'report'
-	let reportSubTab = $state('bulanan'); // 'bulanan' | 'mingguan' | 'periode' | 'harian' | 'semua'
+	let activeView = $state("chat"); // 'chat' (default) | 'report'
+	let reportSubTab = $state("bulanan"); // 'bulanan' | 'mingguan' | 'periode' | 'harian' | 'semua'
 
 	let loading = $state(false);
-	let errorMsg = $state('');
-	let successMsg = $state('');
+	let errorMsg = $state("");
+	let successMsg = $state("");
 
 	// Filter Periode
 	const now = new Date();
-	const pad = (n) => String(n).padStart(2, '0');
-	let selectedBulan = $state(`${now.getFullYear()}-${pad(now.getMonth() + 1)}`);
-	let selectedTanggal = $state(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
+	const pad = (n) => String(n).padStart(2, "0");
+	let selectedBulan = $state(
+		`${now.getFullYear()}-${pad(now.getMonth() + 1)}`,
+	);
+	let selectedTanggal = $state(
+		`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+	);
 
 	// Filter Periode Mingguan (Senin s/d Minggu)
-	let selectedWeekDate = $state(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
+	let selectedWeekDate = $state(
+		`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+	);
 
 	function getWeekRange(dateStr) {
-		const base = new Date((dateStr || `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`) + 'T00:00:00');
+		const base = new Date(
+			(dateStr ||
+				`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`) +
+				"T00:00:00",
+		);
 		const day = base.getDay(); // 0 = Minggu, 1 = Senin, ...
 		const diffToMon = (day === 0 ? -6 : 1) - day;
 		const mon = new Date(base);
@@ -53,17 +64,22 @@
 	// Filter Rentang Periode Kustom (Manual Input)
 	const sevenDaysAgo = new Date(now);
 	sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-	let customStartDate = $state(`${sevenDaysAgo.getFullYear()}-${pad(sevenDaysAgo.getMonth() + 1)}-${pad(sevenDaysAgo.getDate())}`);
-	let customEndDate = $state(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
+	let customStartDate = $state(
+		`${sevenDaysAgo.getFullYear()}-${pad(sevenDaysAgo.getMonth() + 1)}-${pad(sevenDaysAgo.getDate())}`,
+	);
+	let customEndDate = $state(
+		`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+	);
 
 	function calculateDayDiff(start, end) {
 		if (!start || !end) return 1;
-		const d1 = new Date(start + 'T00:00:00');
-		const d2 = new Date(end + 'T00:00:00');
-		const diff = Math.round(Math.abs((d2 - d1) / (1000 * 60 * 60 * 24))) + 1;
+		const d1 = new Date(start + "T00:00:00");
+		const d2 = new Date(end + "T00:00:00");
+		const diff =
+			Math.round(Math.abs((d2 - d1) / (1000 * 60 * 60 * 24))) + 1;
 		return diff;
 	}
-	
+
 	// Data Transaksi & Rekap dari Neon DB (Terisolasi per User)
 	let transaksiList = $state([]);
 	let rekap = $state({
@@ -79,13 +95,13 @@
 			total_pemasukan: 0,
 			saldo_bersih: 0,
 			total_transaksi: 0,
-			start_date: '',
-			end_date: ''
-		}
+			start_date: "",
+			end_date: "",
+		},
 	});
 
 	// CHAT STATE (Mobile-First WA Style)
-	let chatInput = $state('');
+	let chatInput = $state("");
 	let chatAttachedImage = $state(null);
 	let chatLoading = $state(false);
 	let chatMessagesContainer = $state(null);
@@ -93,26 +109,164 @@
 	let showUpgradeModal = $state(false);
 	let upgradeLoading = $state(false);
 
+	// VOICE INPUT & RECORDING STATE
+	let isRecordingVoice = $state(false);
+	let voiceRecordSeconds = $state(0);
+	let voiceTimerInterval = null;
+	let speechRecognitionInstance = null;
+
+	function formatDuration(sec) {
+		const m = Math.floor(sec / 60);
+		const s = sec % 60;
+		return `${m}:${s < 10 ? "0" : ""}${s}`;
+	}
+
+	function startVoiceRecording() {
+		if (
+			chatLoading ||
+			(currentUser?.tier !== "pro" && (currentUser?.sisa_kuota ?? 5) <= 0)
+		) {
+			return;
+		}
+
+		if (typeof window === "undefined") return;
+		const SpeechRecognition =
+			window.SpeechRecognition || window.webkitSpeechRecognition;
+		if (!SpeechRecognition) {
+			errorMsg =
+				"Browser ini belum mendukung Speech Recognition. Silakan gunakan Google Chrome atau Safari untuk merekam suara.";
+			setTimeout(() => {
+				errorMsg = "";
+			}, 5000);
+			return;
+		}
+
+		try {
+			speechRecognitionInstance = new SpeechRecognition();
+			speechRecognitionInstance.lang = "id-ID";
+			speechRecognitionInstance.continuous = true;
+			speechRecognitionInstance.interimResults = true;
+
+			let finalTranscript = "";
+
+			speechRecognitionInstance.onstart = () => {
+				isRecordingVoice = true;
+				voiceRecordSeconds = 0;
+				chatInput = "";
+				if (voiceTimerInterval) clearInterval(voiceTimerInterval);
+				voiceTimerInterval = setInterval(() => {
+					voiceRecordSeconds += 1;
+				}, 1000);
+			};
+
+			speechRecognitionInstance.onresult = (event) => {
+				let interimTranscript = "";
+				for (let i = event.resultIndex; i < event.results.length; ++i) {
+					if (event.results[i].isFinal) {
+						finalTranscript += event.results[i][0].transcript + " ";
+					} else {
+						interimTranscript += event.results[i][0].transcript;
+					}
+				}
+				const currentSpeech = (
+					finalTranscript + interimTranscript
+				).trim();
+				if (currentSpeech) {
+					chatInput = currentSpeech;
+				}
+			};
+
+			speechRecognitionInstance.onerror = (event) => {
+				console.error("Speech recognition error:", event.error);
+				if (event.error === "not-allowed") {
+					errorMsg =
+						"Izin mikrofon belum diberikan. Silakan izinkan akses mikrofon di browser Anda.";
+				} else if (event.error !== "no-speech") {
+					errorMsg = `Gagal merekam suara: ${event.error}`;
+				}
+				setTimeout(() => {
+					errorMsg = "";
+				}, 4500);
+				stopVoiceRecording(false);
+			};
+
+			speechRecognitionInstance.onend = () => {
+				if (isRecordingVoice) {
+					stopVoiceRecording(true);
+				}
+			};
+
+			speechRecognitionInstance.start();
+		} catch (err) {
+			console.error("Error starting speech recognition:", err);
+			errorMsg = "Gagal memulai rekaman suara: " + err.message;
+			setTimeout(() => {
+				errorMsg = "";
+			}, 4500);
+			stopVoiceRecording(false);
+		}
+	}
+
+	function stopVoiceRecording(autoSend = false) {
+		if (voiceTimerInterval) {
+			clearInterval(voiceTimerInterval);
+			voiceTimerInterval = null;
+		}
+		if (speechRecognitionInstance) {
+			const inst = speechRecognitionInstance;
+			speechRecognitionInstance = null;
+			try {
+				inst.stop();
+			} catch (e) {}
+		}
+		isRecordingVoice = false;
+
+		if (autoSend && chatInput.trim()) {
+			sendChatMessage(null, true);
+		}
+	}
+
+	function cancelVoiceRecording() {
+		if (voiceTimerInterval) {
+			clearInterval(voiceTimerInterval);
+			voiceTimerInterval = null;
+		}
+		if (speechRecognitionInstance) {
+			const inst = speechRecognitionInstance;
+			speechRecognitionInstance = null;
+			try {
+				inst.abort();
+			} catch (e) {}
+		}
+		isRecordingVoice = false;
+		chatInput = "";
+	}
+
 	async function toggleProTier(targetTier = null) {
 		upgradeLoading = true;
 		try {
-			const res = await fetch('/api/user/upgrade-pro', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ tier: targetTier })
+			const res = await fetch("/api/user/upgrade-pro", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ tier: targetTier }),
 			});
 			const data = await res.json();
-			if (!res.ok) throw new Error(data.error || 'Gagal mengubah status paket');
+			if (!res.ok)
+				throw new Error(data.error || "Gagal mengubah status paket");
 
 			if (currentUser) {
 				currentUser.tier = data.tier;
 				currentUser.is_pro = data.is_pro;
-				currentUser.sisa_kuota = data.is_pro ? 999999 : Math.max(0, 5 - (currentUser.chat_count_today || 0));
+				currentUser.sisa_kuota = data.is_pro
+					? 999999
+					: Math.max(0, 5 - (currentUser.chat_count_today || 0));
 			}
 
 			successMsg = data.message;
 			showUpgradeModal = false;
-			setTimeout(() => { successMsg = ''; }, 4500);
+			setTimeout(() => {
+				successMsg = "";
+			}, 4500);
 		} catch (err) {
 			errorMsg = err.message;
 		} finally {
@@ -124,35 +278,39 @@
 
 	// CHAT PERSISTENCE (Agar riwayat obrolan hari ini tidak hilang saat di-refresh)
 	function getChatStorageKey() {
-		const uid = currentUser?.id || 'anon';
+		const uid = currentUser?.id || "anon";
 		const today = getTodayDateString();
 		return `catatai_chat_history_v4_${uid}_${today}`;
 	}
 
 	function saveChatHistory() {
-		if (typeof window === 'undefined') return;
+		if (typeof window === "undefined") return;
 		try {
 			const key = getChatStorageKey();
 			const payload = {
 				date: getTodayDateString(),
 				userId: currentUser?.id,
 				messages: chatMessages,
-				draft: currentActiveDraft
+				draft: currentActiveDraft,
 			};
 			localStorage.setItem(key, JSON.stringify(payload));
 		} catch (e) {
-			console.warn('Gagal menyimpan riwayat chat ke localStorage:', e);
+			console.warn("Gagal menyimpan riwayat chat ke localStorage:", e);
 		}
 	}
 
 	function loadChatHistory() {
-		if (typeof window === 'undefined') return false;
+		if (typeof window === "undefined") return false;
 		try {
 			const key = getChatStorageKey();
 			const raw = localStorage.getItem(key);
 			if (!raw) return false;
 			const parsed = JSON.parse(raw);
-			if (parsed && Array.isArray(parsed.messages) && parsed.messages.length > 0) {
+			if (
+				parsed &&
+				Array.isArray(parsed.messages) &&
+				parsed.messages.length > 0
+			) {
 				if (parsed.date === getTodayDateString()) {
 					chatMessages = parsed.messages;
 					currentActiveDraft = parsed.draft || null;
@@ -161,12 +319,12 @@
 				}
 			}
 		} catch (e) {
-			console.warn('Gagal memuat riwayat chat dari localStorage:', e);
+			console.warn("Gagal memuat riwayat chat dari localStorage:", e);
 		}
 		return false;
 	}
 
-	function initChatMessages(userName = '') {
+	function initChatMessages(userName = "") {
 		// 1. Coba pulihkan riwayat percakapan hari ini dari storage
 		const restored = loadChatHistory();
 		if (restored) {
@@ -175,7 +333,7 @@
 
 		// 2. Jika hari ini belum pernah ada percakapan, buat salam pembuka hari ini
 		todayTanggal = getTodayDateString();
-		const name = userName || currentUser?.nama || '';
+		const name = userName || currentUser?.nama || "";
 		const isToday = (txDate) => {
 			if (!txDate) return false;
 			return String(txDate).slice(0, 10) === todayTanggal;
@@ -186,9 +344,9 @@
 
 		if (todayTx.length === 0) {
 			historyMessages.push({
-				id: 'today-empty-greeting',
-				role: 'assistant',
-				content: `Halo${name ? ', ' + name : ''}! 👋
+				id: "today-empty-greeting",
+				role: "assistant",
+				content: `Halo${name ? ", " + name : ""}! 👋
 
 Belum ada transaksi yang dicatat hari ini (${formatTglHari(todayTanggal)}).
 
@@ -199,45 +357,50 @@ Ketik misalnya:
 • "gaji bulanan masuk 10jt"
 
 Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
-				time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`
+				time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`,
 			});
 		} else {
 			const totalKeluar = todayTx
-				.filter((t) => t.tipe === 'pengeluaran')
+				.filter((t) => t.tipe === "pengeluaran")
 				.reduce((acc, curr) => acc + Number(curr.total), 0);
 			const totalMasuk = todayTx
-				.filter((t) => t.tipe === 'pemasukan')
+				.filter((t) => t.tipe === "pemasukan")
 				.reduce((acc, curr) => acc + Number(curr.total), 0);
 
-			let summaryText = `Halo${name ? ', ' + name : ''}! 👋 Berikut catatan riwayat transaksi kamu hari ini (${formatTglHari(todayTanggal)}):`;
-			summaryText += `\n• Pengeluaran: ${formatRupiah(totalKeluar)} (${todayTx.filter((t) => t.tipe === 'pengeluaran').length} transaksi)`;
+			let summaryText = `Halo${name ? ", " + name : ""}! 👋 Berikut catatan riwayat transaksi kamu hari ini (${formatTglHari(todayTanggal)}):`;
+			summaryText += `\n• Pengeluaran: ${formatRupiah(totalKeluar)} (${todayTx.filter((t) => t.tipe === "pengeluaran").length} transaksi)`;
 			if (totalMasuk > 0) {
 				summaryText += `\n• Pemasukan: ${formatRupiah(totalMasuk)}`;
 			}
 
 			historyMessages.push({
-				id: 'today-summary-greeting',
-				role: 'assistant',
+				id: "today-summary-greeting",
+				role: "assistant",
 				content: summaryText,
-				time: todayTx[0].waktu?.slice(0, 5) || `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`
+				time:
+					todayTx[0].waktu?.slice(0, 5) ||
+					`${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`,
 			});
 
 			for (const t of todayTx) {
 				historyMessages.push({
 					id: `tx-card-${t.id}`,
-					role: 'assistant',
+					role: "assistant",
 					isTxCard: true,
 					txData: t,
-					content: `Transaksi tercatat: ${t.toko || (t.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran')} sebesar ${formatRupiah(t.total)} (${t.kategori})`,
-					time: t.waktu?.slice(0, 5) || `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`
+					content: `Transaksi tercatat: ${t.toko || (t.tipe === "pemasukan" ? "Pemasukan" : "Pengeluaran")} sebesar ${formatRupiah(t.total)} (${t.kategori})`,
+					time:
+						t.waktu?.slice(0, 5) ||
+						`${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`,
 				});
 			}
 
 			historyMessages.push({
-				id: 'today-ready-next',
-				role: 'assistant',
-				content: 'Ada transaksi lain yang ingin dicatat hari ini? Ketik pengeluaranmu atau unggah foto nota.',
-				time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`
+				id: "today-ready-next",
+				role: "assistant",
+				content:
+					"Ada transaksi lain yang ingin dicatat hari ini? Ketik pengeluaranmu atau unggah foto nota.",
+				time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`,
 			});
 		}
 
@@ -247,7 +410,8 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	}
 
 	function resetTodayChat() {
-		if (!confirm('Bersihkan percakapan chat hari ini dan mulai sesi baru?')) return;
+		if (!confirm("Bersihkan percakapan chat hari ini dan mulai sesi baru?"))
+			return;
 		try {
 			localStorage.removeItem(getChatStorageKey());
 		} catch {}
@@ -257,30 +421,244 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	}
 
 	// Filter Report
-	let filterTipe = $state('');
-	let filterKategori = $state('');
-	let searchQuery = $state('');
+	let filterTipe = $state("");
+	let filterKategori = $state("");
+	let searchQuery = $state("");
 
 	// Modal Manual / Edit
 	let showModalTambah = $state(false);
-	let modeInput = $state('manual');
+	let modeInput = $state("manual");
 
 	// Form Transaksi Manual / Edit
 	let form = $state({
-		tipe: 'pengeluaran',
-		toko: '',
+		tipe: "pengeluaran",
+		toko: "",
 		tanggal: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
 		waktu: `${pad(now.getHours())}:${pad(now.getMinutes())}:00`,
-		kategori: 'Makanan & Minuman',
-		metode_bayar: 'Tunai',
+		kategori: "Makanan & Minuman",
+		metode_bayar: "Tunai",
+		dompet: "Tunai",
+		dompet_id: null,
 		subtotal: 0,
 		pajak: 0,
 		diskon: 0,
 		total: 0,
-		catatan: '',
-		gambar_url: '',
-		items: []
+		catatan: "",
+		gambar_url: "",
+		items: [],
 	});
+
+	// MULTI-DOMPET STATE
+	let dompetList = $state([]);
+	let totalSaldoDompet = $state(0);
+	let selectedDompetFilter = $state(null); // null = semua, number = dompet.id
+	let isDompetSheetOpen = $state(false);
+	let isEditingDompet = $state(false);
+	let dompetForm = $state({
+		id: null,
+		nama: "",
+		tipe: "bank",
+		saldo_awal: 0,
+		warna: "#2563eb",
+		ikon: "bank",
+		nomor_rekening: "",
+		catatan: "",
+	});
+	let isTransferSheetOpen = $state(false);
+	let transferForm = $state({
+		dari_dompet_id: null,
+		ke_dompet_id: null,
+		nominal: 0,
+		tanggal: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+		catatan: "",
+	});
+	let transferLoading = $state(false);
+	let dompetLoading = $state(false);
+
+	const DOMPET_WARNA_PRESETS = [
+		{ name: "Navy Blue", hex: "#2563eb" },
+		{ name: "Emerald", hex: "#059669" },
+		{ name: "Purple", hex: "#7c3aed" },
+		{ name: "Warm Amber", hex: "#d97706" },
+		{ name: "Crimson", hex: "#dc2626" },
+		{ name: "Ocean Cyan", hex: "#0891b2" },
+		{ name: "Dark Slate", hex: "#334155" },
+	];
+
+	function getDompetIcon(tipe) {
+		if (tipe === "cash") return "💵";
+		if (tipe === "ewallet") return "📱";
+		if (tipe === "bank") return "🏦";
+		return "💳";
+	}
+
+	async function loadDompet() {
+		if (!currentUser) return;
+		try {
+			const res = await fetch("/api/dompet");
+			const data = await res.json();
+			if (res.ok && data.dompet) {
+				dompetList = data.dompet;
+				totalSaldoDompet = data.total_saldo || 0;
+			}
+		} catch (err) {
+			console.error("Error loadDompet:", err);
+		}
+	}
+
+	function openCreateDompet() {
+		isEditingDompet = false;
+		dompetForm = {
+			id: null,
+			nama: "",
+			tipe: "bank",
+			saldo_awal: 0,
+			warna: "#2563eb",
+			ikon: "bank",
+			nomor_rekening: "",
+			catatan: "",
+		};
+		isDompetSheetOpen = true;
+	}
+
+	function openEditDompet(d) {
+		isEditingDompet = true;
+		dompetForm = {
+			id: d.id,
+			nama: d.nama,
+			tipe: d.tipe || "bank",
+			saldo_awal: d.saldo_awal || 0,
+			warna: d.warna || "#2563eb",
+			ikon: d.ikon || "bank",
+			nomor_rekening: d.nomor_rekening || "",
+			catatan: d.catatan || "",
+		};
+		isDompetSheetOpen = true;
+	}
+
+	async function handleSaveDompet() {
+		if (!dompetForm.nama.trim()) {
+			errorMsg = "Nama dompet wajib diisi";
+			return;
+		}
+		dompetLoading = true;
+		errorMsg = "";
+		try {
+			const url = isEditingDompet
+				? `/api/dompet/${dompetForm.id}`
+				: "/api/dompet";
+			const method = isEditingDompet ? "PUT" : "POST";
+			const res = await fetch(url, {
+				method,
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(dompetForm),
+			});
+			const data = await res.json();
+			if (!res.ok)
+				throw new Error(data.error || "Gagal menyimpan dompet");
+			successMsg = isEditingDompet
+				? "Dompet berhasil diperbarui!"
+				: "Dompet baru berhasil ditambahkan!";
+			setTimeout(() => {
+				successMsg = "";
+			}, 3500);
+			isDompetSheetOpen = false;
+			await loadDompet();
+			await loadData();
+		} catch (err) {
+			errorMsg = err.message;
+		} finally {
+			dompetLoading = false;
+		}
+	}
+
+	async function handleDeleteDompet(id) {
+		if (
+			!confirm(
+				"Yakin ingin menghapus dompet ini? Catatan transaksi yang sudah ada tidak akan terhapus.",
+			)
+		)
+			return;
+		try {
+			const res = await fetch(`/api/dompet/${id}`, { method: "DELETE" });
+			const data = await res.json();
+			if (!res.ok)
+				throw new Error(data.error || "Gagal menghapus dompet");
+			if (selectedDompetFilter === id) selectedDompetFilter = null;
+			successMsg = "Dompet berhasil dihapus";
+			setTimeout(() => {
+				successMsg = "";
+			}, 3500);
+			isDompetSheetOpen = false;
+			await loadDompet();
+			await loadData();
+		} catch (err) {
+			errorMsg = err.message;
+		}
+	}
+
+	function openTransferModal(fromId = null) {
+		const firstId = fromId || (dompetList[0]?.id ?? null);
+		const otherId =
+			dompetList.find((d) => d.id !== firstId)?.id ??
+			dompetList[1]?.id ??
+			null;
+		transferForm = {
+			dari_dompet_id: firstId,
+			ke_dompet_id: otherId,
+			nominal: 0,
+			tanggal: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+			catatan: "",
+		};
+		isTransferSheetOpen = true;
+	}
+
+	async function handleTransferSubmit() {
+		if (!transferForm.dari_dompet_id || !transferForm.ke_dompet_id) {
+			errorMsg = "Pilih dompet asal dan tujuan transfer";
+			return;
+		}
+		if (
+			Number(transferForm.dari_dompet_id) ===
+			Number(transferForm.ke_dompet_id)
+		) {
+			errorMsg = "Dompet asal dan tujuan tidak boleh sama";
+			return;
+		}
+		if (!transferForm.nominal || Number(transferForm.nominal) <= 0) {
+			errorMsg = "Nominal transfer harus lebih dari 0";
+			return;
+		}
+
+		transferLoading = true;
+		errorMsg = "";
+		try {
+			const res = await fetch("/api/dompet/transfer", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(transferForm),
+			});
+			const data = await res.json();
+			if (!res.ok)
+				throw new Error(data.error || "Gagal memproses transfer");
+			successMsg = data.message || "Transfer antar dompet berhasil!";
+			setTimeout(() => {
+				successMsg = "";
+			}, 3500);
+			isTransferSheetOpen = false;
+			await loadDompet();
+			await loadData();
+		} catch (err) {
+			errorMsg = err.message;
+		} finally {
+			transferLoading = false;
+		}
+	}
+
+	function selectDompetFilter(id) {
+		selectedDompetFilter = selectedDompetFilter === id ? null : id;
+		loadData();
+	}
 
 	// Modal Detail
 	let showModalDetail = $state(false);
@@ -288,55 +666,87 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	let detailLoading = $state(false);
 
 	const KATEGORI_OPTIONS = [
-		'Makanan & Minuman',
-		'Belanja Harian',
-		'Bahan Baku',
-		'Operasional',
-		'Transportasi',
-		'Utilitas & Tagihan',
-		'Elektronik & Alat',
-		'Gaji & Upah',
-		'Penjualan Produk',
-		'Lainnya'
+		"Makanan & Minuman",
+		"Belanja Harian",
+		"Bahan Baku",
+		"Operasional",
+		"Transportasi",
+		"Utilitas & Tagihan",
+		"Elektronik & Alat",
+		"Gaji & Upah",
+		"Penjualan Produk",
+		"Lainnya",
 	];
 
-	const METODE_OPTIONS = ['Tunai', 'QRIS', 'Transfer', 'Kartu Debit', 'Kartu Kredit'];
+	const METODE_OPTIONS = [
+		"Tunai",
+		"QRIS",
+		"Transfer",
+		"Kartu Debit",
+		"Kartu Kredit",
+	];
 
 	function formatRupiah(num) {
-		return new Intl.NumberFormat('id-ID', {
-			style: 'currency',
-			currency: 'IDR',
-			maximumFractionDigits: 0
+		return new Intl.NumberFormat("id-ID", {
+			style: "currency",
+			currency: "IDR",
+			maximumFractionDigits: 0,
 		}).format(num || 0);
 	}
 
+	function formatRingkas(num) {
+		if (!num && num !== 0) return "Rp 0";
+		const abs = Math.abs(num);
+		const sign = num < 0 ? "-" : "";
+		if (abs >= 1_000_000_000) {
+			return `${sign}Rp ${(abs / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
+		}
+		if (abs >= 1_000_000) {
+			return `${sign}Rp ${(abs / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
+		}
+		if (abs >= 1_000) {
+			return `${sign}Rp ${(abs / 1_000).toFixed(0)} Rb`;
+		}
+		return formatRupiah(num);
+	}
+
 	function formatTglHari(str) {
-		if (!str) return '-';
-		const d = new Date(str + 'T00:00:00');
-		return d.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+		if (!str) return "-";
+		const d = new Date(str + "T00:00:00");
+		return d.toLocaleDateString("id-ID", {
+			weekday: "long",
+			day: "numeric",
+			month: "short",
+			year: "numeric",
+		});
 	}
 
 	function formatTgl(str) {
-		if (!str) return '-';
-		const d = new Date(str + 'T00:00:00');
-		return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+		if (!str) return "-";
+		const d = new Date(str + "T00:00:00");
+		return d.toLocaleDateString("id-ID", {
+			day: "numeric",
+			month: "short",
+			year: "numeric",
+		});
 	}
 
 	// AUTH ACTIONS
 	async function checkAuth() {
 		authChecking = true;
 		try {
-			const res = await fetch('/api/auth/me');
+			const res = await fetch("/api/auth/me");
 			const data = await res.json();
 			if (data.user) {
 				currentUser = data.user;
 				initChatMessages(data.user.nama);
+				await loadDompet();
 				await loadData();
 			} else {
 				currentUser = null;
 			}
 		} catch (err) {
-			console.error('Error checkAuth:', err);
+			console.error("Error checkAuth:", err);
 			currentUser = null;
 		} finally {
 			authChecking = false;
@@ -344,23 +754,28 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	}
 
 	async function handleAuthSubmit() {
-		authError = '';
+		authError = "";
 		authLoading = true;
 
 		try {
-			const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+			const endpoint =
+				authMode === "register"
+					? "/api/auth/register"
+					: "/api/auth/login";
 			const res = await fetch(endpoint, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(authForm)
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(authForm),
 			});
 
 			const data = await res.json();
-			if (!res.ok) throw new Error(data.error || 'Terjadi kesalahan autentikasi');
+			if (!res.ok)
+				throw new Error(data.error || "Terjadi kesalahan autentikasi");
 
 			currentUser = data.user;
-			authForm = { email: '', nama: '', password: '' };
+			authForm = { email: "", nama: "", password: "" };
 			initChatMessages(data.user.nama);
+			await loadDompet();
 			await loadData();
 		} catch (err) {
 			authError = err.message;
@@ -371,15 +786,15 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 	async function handleLogout() {
 		try {
-			await fetch('/api/auth/logout', { method: 'POST' });
+			await fetch("/api/auth/logout", { method: "POST" });
 			currentUser = null;
 			showProfileModal = false;
 			transaksiList = [];
 			chatMessages = [];
-			authMode = 'login';
-			authForm = { email: '', nama: '', password: '' };
+			authMode = "login";
+			authForm = { email: "", nama: "", password: "" };
 		} catch (err) {
-			console.error('Error logout:', err);
+			console.error("Error logout:", err);
 		}
 	}
 
@@ -387,15 +802,19 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		if (deferredInstallPrompt) {
 			deferredInstallPrompt.prompt();
 			const { outcome } = await deferredInstallPrompt.userChoice;
-			if (outcome === 'accepted') {
+			if (outcome === "accepted") {
 				canInstallPWA = false;
 				isAppStandalone = true;
-				successMsg = 'CatatAi berhasil dipasang di perangkat Anda!';
-				setTimeout(() => { successMsg = ''; }, 3500);
+				successMsg = "CatatAi berhasil dipasang di perangkat Anda!";
+				setTimeout(() => {
+					successMsg = "";
+				}, 3500);
 			}
 			deferredInstallPrompt = null;
 		} else {
-			alert('📱 Cara Memasang CatatAi ke Layar Utama:\n\n• Di iPhone/iPad (Safari): Tekan ikon Bagikan (Share) ⎋ di bawah, lalu pilih "Tambah ke Layar Utama" (+).\n• Di Android (Chrome): Tekan menu titik tiga (⋮) di kanan atas, lalu pilih "Instal aplikasi" atau "Tambahkan ke Layar Utama".\n• Di Komputer (Chrome/Edge): Tekan ikon Instal di ujung kanan address bar browser.');
+			alert(
+				'📱 Cara Memasang CatatAi ke Layar Utama:\n\n• Di iPhone/iPad (Safari): Tekan ikon Bagikan (Share) ⎋ di bawah, lalu pilih "Tambah ke Layar Utama" (+).\n• Di Android (Chrome): Tekan menu titik tiga (⋮) di kanan atas, lalu pilih "Instal aplikasi" atau "Tambahkan ke Layar Utama".\n• Di Komputer (Chrome/Edge): Tekan ikon Instal di ujung kanan address bar browser.',
+			);
 		}
 	}
 
@@ -404,16 +823,21 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		loading = true;
 		try {
 			let url = `/api/transaksi`;
-			if (reportSubTab === 'mingguan') {
+			if (reportSubTab === "mingguan") {
 				const range = getWeekRange(selectedWeekDate);
 				url += `?dari_tanggal=${range.start}&sampai_tanggal=${range.end}`;
-			} else if (reportSubTab === 'periode') {
+			} else if (reportSubTab === "periode") {
 				url += `?dari_tanggal=${customStartDate}&sampai_tanggal=${customEndDate}`;
-			} else if (reportSubTab === 'harian') {
+			} else if (reportSubTab === "harian") {
 				const monthOfTanggal = selectedTanggal.slice(0, 7);
 				url += `?bulan=${monthOfTanggal}`;
 			} else {
 				url += `?bulan=${selectedBulan}`;
+			}
+			if (selectedDompetFilter) {
+				url +=
+					(url.includes("?") ? "&" : "?") +
+					`dompet_id=${selectedDompetFilter}`;
 			}
 			const res = await fetch(url);
 			const data = await res.json();
@@ -422,7 +846,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 					currentUser = null;
 					return;
 				}
-				throw new Error(data.error || 'Gagal memuat data');
+				throw new Error(data.error || "Gagal memuat data");
 			}
 			transaksiList = data.transaksi || [];
 			rekap = data.rekap || {
@@ -438,10 +862,11 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 					total_pemasukan: 0,
 					saldo_bersih: 0,
 					total_transaksi: 0,
-					start_date: '',
-					end_date: ''
-				}
+					start_date: "",
+					end_date: "",
+				},
 			};
+			loadDompet();
 			// Inisialisasi chat hanya jika belum ada pesan yang dimuat
 			if (chatMessages.length === 0) {
 				initChatMessages();
@@ -454,18 +879,22 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	}
 
 	$effect(() => {
-		if (typeof window !== 'undefined') {
+		if (typeof window !== "undefined") {
 			if (!authChecking && !currentUser) {
-				const existingScript = document.querySelector('script[src*="chatbotai-five-phi.vercel.app/widget.js"]');
+				const existingScript = document.querySelector(
+					'script[src*="chatbotai-five-phi.vercel.app/widget.js"]',
+				);
 				if (!existingScript) {
-					const s = document.createElement('script');
-					s.src = 'https://chatbotai-five-phi.vercel.app/widget.js';
-					s.setAttribute('data-bot-id', 'bot_hk7l2ol');
+					const s = document.createElement("script");
+					s.src = "https://chatbotai-five-phi.vercel.app/widget.js";
+					s.setAttribute("data-bot-id", "bot_hk7l2ol");
 					s.async = true;
 					document.body.appendChild(s);
 				}
 			} else if (currentUser) {
-				const widgetRoot = document.getElementById('ai-chatbot-widget-root');
+				const widgetRoot = document.getElementById(
+					"ai-chatbot-widget-root",
+				);
 				if (widgetRoot) widgetRoot.remove();
 			}
 		}
@@ -475,20 +904,23 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		checkAuth();
 
 		// Detect standalone display mode (PWA installed)
-		if (typeof window !== 'undefined') {
-			if (window.matchMedia('(display-mode: standalone)').matches || ('standalone' in navigator && navigator.standalone)) {
+		if (typeof window !== "undefined") {
+			if (
+				window.matchMedia("(display-mode: standalone)").matches ||
+				("standalone" in navigator && navigator.standalone)
+			) {
 				isAppStandalone = true;
 			}
 		}
 
 		// Listen to PWA install prompt
-		window.addEventListener('beforeinstallprompt', (e) => {
+		window.addEventListener("beforeinstallprompt", (e) => {
 			e.preventDefault();
 			deferredInstallPrompt = e;
 			canInstallPWA = true;
 		});
 
-		window.addEventListener('appinstalled', () => {
+		window.addEventListener("appinstalled", () => {
 			isAppStandalone = true;
 			canInstallPWA = false;
 			deferredInstallPrompt = null;
@@ -498,19 +930,20 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	async function scrollToBottom() {
 		await tick();
 		if (chatMessagesContainer) {
-			chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+			chatMessagesContainer.scrollTop =
+				chatMessagesContainer.scrollHeight;
 		}
 	}
 
 	function prevMonth() {
-		const [y, m] = selectedBulan.split('-').map(Number);
+		const [y, m] = selectedBulan.split("-").map(Number);
 		const d = new Date(y, m - 2, 1);
 		selectedBulan = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
 		loadData();
 	}
 
 	function nextMonth() {
-		const [y, m] = selectedBulan.split('-').map(Number);
+		const [y, m] = selectedBulan.split("-").map(Number);
 		const d = new Date(y, m, 1);
 		selectedBulan = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
 		loadData();
@@ -527,14 +960,14 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	}
 
 	function prevWeek() {
-		const base = new Date(selectedWeekDate + 'T00:00:00');
+		const base = new Date(selectedWeekDate + "T00:00:00");
 		base.setDate(base.getDate() - 7);
 		selectedWeekDate = `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`;
 		loadData();
 	}
 
 	function nextWeek() {
-		const base = new Date(selectedWeekDate + 'T00:00:00');
+		const base = new Date(selectedWeekDate + "T00:00:00");
 		base.setDate(base.getDate() + 7);
 		selectedWeekDate = `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`;
 		loadData();
@@ -545,21 +978,33 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		loadData();
 	}
 
-	const NAMA_HARI_SHORT = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
-	const NAMA_HARI_FULL = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+	const NAMA_HARI_SHORT = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+	const NAMA_HARI_FULL = [
+		"Minggu",
+		"Senin",
+		"Selasa",
+		"Rabu",
+		"Kamis",
+		"Jumat",
+		"Sabtu",
+	];
 
 	let weekDaysData = $derived.by(() => {
 		const range = currentWeekRange;
 		const days = [];
 		const curr = new Date(range.monday);
 		const trenMap = {};
-		for (const itm of (rekap.tren_harian || [])) {
+		for (const itm of rekap.tren_harian || []) {
 			trenMap[itm.tanggal] = itm;
 		}
 		for (let i = 0; i < 7; i++) {
 			const dStr = `${curr.getFullYear()}-${pad(curr.getMonth() + 1)}-${pad(curr.getDate())}`;
 			const dayOfWeek = curr.getDay();
-			const entry = trenMap[dStr] || { pengeluaran: 0, pemasukan: 0, count: 0 };
+			const entry = trenMap[dStr] || {
+				pengeluaran: 0,
+				pemasukan: 0,
+				count: 0,
+			};
 			days.push({
 				date: dStr,
 				dayShort: NAMA_HARI_SHORT[dayOfWeek],
@@ -567,7 +1012,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 				dayNum: pad(curr.getDate()),
 				pengeluaran: entry.pengeluaran || 0,
 				pemasukan: entry.pemasukan || 0,
-				count: entry.count || 0
+				count: entry.count || 0,
 			});
 			curr.setDate(curr.getDate() + 1);
 		}
@@ -576,31 +1021,31 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 	function setPeriodPreset(preset) {
 		const t = new Date();
-		if (preset === 'hari-ini') {
+		if (preset === "hari-ini") {
 			const str = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
 			customStartDate = str;
 			customEndDate = str;
-		} else if (preset === '7-hari') {
+		} else if (preset === "7-hari") {
 			const past = new Date(t);
 			past.setDate(past.getDate() - 6);
 			customStartDate = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
 			customEndDate = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
-		} else if (preset === '14-hari') {
+		} else if (preset === "14-hari") {
 			const past = new Date(t);
 			past.setDate(past.getDate() - 13);
 			customStartDate = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
 			customEndDate = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
-		} else if (preset === '30-hari') {
+		} else if (preset === "30-hari") {
 			const past = new Date(t);
 			past.setDate(past.getDate() - 29);
 			customStartDate = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
 			customEndDate = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
-		} else if (preset === 'bulan-ini') {
+		} else if (preset === "bulan-ini") {
 			const firstDay = new Date(t.getFullYear(), t.getMonth(), 1);
 			const lastDay = new Date(t.getFullYear(), t.getMonth() + 1, 0);
 			customStartDate = `${firstDay.getFullYear()}-${pad(firstDay.getMonth() + 1)}-${pad(firstDay.getDate())}`;
 			customEndDate = `${lastDay.getFullYear()}-${pad(lastDay.getMonth() + 1)}-${pad(lastDay.getDate())}`;
-		} else if (preset === 'bulan-lalu') {
+		} else if (preset === "bulan-lalu") {
 			const firstDay = new Date(t.getFullYear(), t.getMonth() - 1, 1);
 			const lastDay = new Date(t.getFullYear(), t.getMonth(), 0);
 			customStartDate = `${firstDay.getFullYear()}-${pad(firstDay.getMonth() + 1)}-${pad(firstDay.getDate())}`;
@@ -615,36 +1060,44 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			if (filterKategori && t.kategori !== filterKategori) return false;
 			if (searchQuery) {
 				const q = searchQuery.toLowerCase();
-				const matchToko = (t.toko || '').toLowerCase().includes(q);
-				const matchCatatan = (t.catatan || '').toLowerCase().includes(q);
-				const matchKategori = (t.kategori || '').toLowerCase().includes(q);
+				const matchToko = (t.toko || "").toLowerCase().includes(q);
+				const matchCatatan = (t.catatan || "")
+					.toLowerCase()
+					.includes(q);
+				const matchKategori = (t.kategori || "")
+					.toLowerCase()
+					.includes(q);
 				if (!matchToko && !matchCatatan && !matchKategori) return false;
 			}
 			return true;
-		})
+		}),
 	);
 
 	function getTodayDateString() {
 		const d = new Date();
-		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 	}
 	let todayTanggal = $state(getTodayDateString());
 	let showTodayHistoryPanel = $state(true);
 
 	// Catatan transaksi khusus HARI INI untuk Chat & Header
 	let transaksiHariIni = $derived(
-		transaksiList.filter((t) => t.tanggal === todayTanggal)
+		transaksiList.filter((t) => t.tanggal === todayTanggal),
 	);
 
 	let totalHariIni = $derived(
-		transaksiHariIni.reduce((acc, curr) => {
-			if (curr.tipe === 'pengeluaran') acc.pengeluaran += Number(curr.total);
-			else acc.pemasukan += Number(curr.total);
-			return acc;
-		}, { pengeluaran: 0, pemasukan: 0 })
+		transaksiHariIni.reduce(
+			(acc, curr) => {
+				if (curr.tipe === "pengeluaran")
+					acc.pengeluaran += Number(curr.total);
+				else acc.pemasukan += Number(curr.total);
+				return acc;
+			},
+			{ pengeluaran: 0, pemasukan: 0 },
+		),
 	);
 
-	let companionPeriodTab = $state('minggu'); // 'minggu' | 'bulan'
+	let companionPeriodTab = $state("minggu"); // 'minggu' | 'bulan'
 
 	// Catatan transaksi khusus MINGGU INI untuk Chat & Sidebar
 	let currentWeekRangeToday = $derived(getWeekRange(todayTanggal));
@@ -653,45 +1106,63 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		transaksiList.filter((t) => {
 			const rng = currentWeekRangeToday;
 			return t.tanggal >= rng.start && t.tanggal <= rng.end;
-		})
+		}),
 	);
 
 	let totalMingguIni = $derived.by(() => {
-		if (rekap.ringkasan_minggu_ini && rekap.ringkasan_minggu_ini.total_pengeluaran !== undefined) {
+		if (
+			rekap.ringkasan_minggu_ini &&
+			rekap.ringkasan_minggu_ini.total_pengeluaran !== undefined
+		) {
 			return {
-				pengeluaran: Number(rekap.ringkasan_minggu_ini.total_pengeluaran) || 0,
-				pemasukan: Number(rekap.ringkasan_minggu_ini.total_pemasukan) || 0,
-				saldo_bersih: Number(rekap.ringkasan_minggu_ini.saldo_bersih) || 0,
-				total_transaksi: Number(rekap.ringkasan_minggu_ini.total_transaksi) || 0,
-				start_date: rekap.ringkasan_minggu_ini.start_date || currentWeekRangeToday.start,
-				end_date: rekap.ringkasan_minggu_ini.end_date || currentWeekRangeToday.end
+				pengeluaran:
+					Number(rekap.ringkasan_minggu_ini.total_pengeluaran) || 0,
+				pemasukan:
+					Number(rekap.ringkasan_minggu_ini.total_pemasukan) || 0,
+				saldo_bersih:
+					Number(rekap.ringkasan_minggu_ini.saldo_bersih) || 0,
+				total_transaksi:
+					Number(rekap.ringkasan_minggu_ini.total_transaksi) || 0,
+				start_date:
+					rekap.ringkasan_minggu_ini.start_date ||
+					currentWeekRangeToday.start,
+				end_date:
+					rekap.ringkasan_minggu_ini.end_date ||
+					currentWeekRangeToday.end,
 			};
 		}
-		const calc = transaksiMingguIni.reduce((acc, curr) => {
-			if (curr.tipe === 'pengeluaran') acc.pengeluaran += Number(curr.total);
-			else acc.pemasukan += Number(curr.total);
-			return acc;
-		}, { pengeluaran: 0, pemasukan: 0 });
+		const calc = transaksiMingguIni.reduce(
+			(acc, curr) => {
+				if (curr.tipe === "pengeluaran")
+					acc.pengeluaran += Number(curr.total);
+				else acc.pemasukan += Number(curr.total);
+				return acc;
+			},
+			{ pengeluaran: 0, pemasukan: 0 },
+		);
 		return {
 			pengeluaran: calc.pengeluaran,
 			pemasukan: calc.pemasukan,
 			saldo_bersih: calc.pemasukan - calc.pengeluaran,
 			total_transaksi: transaksiMingguIni.length,
 			start_date: currentWeekRangeToday.start,
-			end_date: currentWeekRangeToday.end
+			end_date: currentWeekRangeToday.end,
 		};
 	});
 
 	let harianTransaksi = $derived(
-		transaksiList.filter((t) => t.tanggal === selectedTanggal)
+		transaksiList.filter((t) => t.tanggal === selectedTanggal),
 	);
 
 	let totalHarian = $derived(
-		harianTransaksi.reduce((acc, curr) => {
-			if (curr.tipe === 'pengeluaran') acc.pengeluaran += curr.total;
-			else acc.pemasukan += curr.total;
-			return acc;
-		}, { pengeluaran: 0, pemasukan: 0 })
+		harianTransaksi.reduce(
+			(acc, curr) => {
+				if (curr.tipe === "pengeluaran") acc.pengeluaran += curr.total;
+				else acc.pemasukan += curr.total;
+				return acc;
+			},
+			{ pengeluaran: 0, pemasukan: 0 },
+		),
 	);
 
 	// CHAT LOGIC
@@ -709,7 +1180,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		chatAttachedImage = null;
 	}
 
-	async function sendChatMessage(customText = null) {
+	async function sendChatMessage(customText = null, isVoice = false) {
 		const text = customText !== null ? customText : chatInput.trim();
 		const image = chatAttachedImage;
 
@@ -717,26 +1188,33 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 		const userMsg = {
 			id: Date.now(),
-			role: 'user',
+			role: "user",
 			content: text,
 			image: image,
-			time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`
+			is_voice: isVoice,
+			time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`,
 		};
 		chatMessages = [...chatMessages, userMsg];
-		chatInput = '';
+		chatInput = "";
 		chatAttachedImage = null;
 		chatLoading = true;
 		saveChatHistory();
 		scrollToBottom();
 
-		const cleanLower = (text || '').toLowerCase().trim();
-		if (cleanLower === 'ringkasan minggu ini' || cleanLower === 'rekap minggu ini' || cleanLower === 'laporan minggu ini' || cleanLower === 'minggu ini') {
+		const cleanLower = (text || "").toLowerCase().trim();
+		if (
+			cleanLower === "ringkasan minggu ini" ||
+			cleanLower === "rekap minggu ini" ||
+			cleanLower === "laporan minggu ini" ||
+			cleanLower === "minggu ini"
+		) {
 			const s = totalMingguIni;
 			const botTime = `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
-			const msgContent = `📊 **Ringkasan Keuangan Minggu Ini** (${formatTgl(s.start_date)} – ${formatTgl(s.end_date)}):\n\n` +
+			const msgContent =
+				`📊 **Ringkasan Keuangan Minggu Ini** (${formatTgl(s.start_date)} – ${formatTgl(s.end_date)}):\n\n` +
 				`• **Pengeluaran:** ${formatRupiah(s.pengeluaran)}\n` +
 				`• **Pemasukan:** ${formatRupiah(s.pemasukan)}\n` +
-				`• **Saldo Bersih:** ${s.saldo_bersih >= 0 ? '+' : ''}${formatRupiah(s.saldo_bersih)}\n` +
+				`• **Saldo Bersih:** ${s.saldo_bersih >= 0 ? "+" : ""}${formatRupiah(s.saldo_bersih)}\n` +
 				`• **Total Transaksi:** ${s.total_transaksi} transaksi tercatat\n` +
 				`• **Pengeluaran Hari Ini:** ${formatRupiah(totalHariIni.pengeluaran)}\n\n` +
 				`💡 *Kamu juga bisa membuka tab **Report & Rekap → Mingguan** untuk grafik harian 7 hari dan kategori lengkap!* 📈`;
@@ -744,10 +1222,10 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 				...chatMessages,
 				{
 					id: Date.now() + 1,
-					role: 'assistant',
+					role: "assistant",
 					content: msgContent,
-					time: botTime
-				}
+					time: botTime,
+				},
 			];
 			saveChatHistory();
 			chatLoading = false;
@@ -755,21 +1233,26 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			return;
 		}
 
-		if (cleanLower === 'ringkasan hari ini' || cleanLower === 'rekap hari ini' || cleanLower === 'laporan hari ini') {
+		if (
+			cleanLower === "ringkasan hari ini" ||
+			cleanLower === "rekap hari ini" ||
+			cleanLower === "laporan hari ini"
+		) {
 			const botTime = `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
-			const msgContent = `📅 **Ringkasan Transaksi Hari Ini** (${formatTglHari(todayTanggal)}):\n\n` +
-				`• **Pengeluaran:** ${formatRupiah(totalHariIni.pengeluaran)} (${transaksiHariIni.filter(t => t.tipe === 'pengeluaran').length} transaksi)\n` +
-				`• **Pemasukan:** ${formatRupiah(totalHariIni.pemasukan)} (${transaksiHariIni.filter(t => t.tipe === 'pemasukan').length} transaksi)\n` +
+			const msgContent =
+				`📅 **Ringkasan Transaksi Hari Ini** (${formatTglHari(todayTanggal)}):\n\n` +
+				`• **Pengeluaran:** ${formatRupiah(totalHariIni.pengeluaran)} (${transaksiHariIni.filter((t) => t.tipe === "pengeluaran").length} transaksi)\n` +
+				`• **Pemasukan:** ${formatRupiah(totalHariIni.pemasukan)} (${transaksiHariIni.filter((t) => t.tipe === "pemasukan").length} transaksi)\n` +
 				`• **Saldo Bersih Hari Ini:** ${formatRupiah(totalHariIni.pemasukan - totalHariIni.pengeluaran)}\n` +
 				`• **Akumulasi Minggu Ini:** ${formatRupiah(totalMingguIni.pengeluaran)}`;
 			chatMessages = [
 				...chatMessages,
 				{
 					id: Date.now() + 1,
-					role: 'assistant',
+					role: "assistant",
 					content: msgContent,
-					time: botTime
-				}
+					time: botTime,
+				},
 			];
 			saveChatHistory();
 			chatLoading = false;
@@ -779,22 +1262,26 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 		try {
 			const historyPayload = chatMessages
-				.filter((m) => typeof m.content === 'string' && m.content.trim().length > 0)
+				.filter(
+					(m) =>
+						typeof m.content === "string" &&
+						m.content.trim().length > 0,
+				)
 				.slice(-6)
 				.map((m) => ({
 					role: m.role,
-					content: m.content.trim()
+					content: m.content.trim(),
 				}));
 
-			const res = await fetch('/api/chat-catat', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
+			const res = await fetch("/api/chat-catat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
 					pesan: text,
 					image: image,
 					history: historyPayload,
-					currentDraft: currentActiveDraft
-				})
+					currentDraft: currentActiveDraft,
+				}),
 			});
 
 			const data = await res.json();
@@ -803,59 +1290,66 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 					if (currentUser) currentUser.sisa_kuota = 0;
 					showUpgradeModal = true;
 				}
-				throw new Error(data.error || 'Gagal memproses pesan');
+				throw new Error(data.error || "Gagal memproses pesan");
 			}
 
 			// Update kuota & status PRO di client
 			if (currentUser) {
-				if (data.sisa_kuota !== undefined) currentUser.sisa_kuota = data.sisa_kuota;
-				if (data.chat_count_today !== undefined) currentUser.chat_count_today = data.chat_count_today;
+				if (data.sisa_kuota !== undefined)
+					currentUser.sisa_kuota = data.sisa_kuota;
+				if (data.chat_count_today !== undefined)
+					currentUser.chat_count_today = data.chat_count_today;
 				if (data.tier !== undefined) currentUser.tier = data.tier;
 				if (data.is_pro !== undefined) currentUser.is_pro = data.is_pro;
 			}
 
 			const botTime = `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
 
-			if (data.aksi === 'draft') {
-				const newDraft = { ...data.transaksi, status: 'pending' };
+			if (data.aksi === "draft") {
+				const newDraft = { ...data.transaksi, status: "pending" };
 				currentActiveDraft = newDraft;
 				chatMessages = [
 					...chatMessages,
 					{
 						id: Date.now() + 1,
-						role: 'assistant',
+						role: "assistant",
 						content: data.jawaban_teks,
 						draft: newDraft,
-						time: botTime
-					}
+						time: botTime,
+					},
 				];
-			} else if (data.aksi === 'konfirmasi_simpan') {
+			} else if (data.aksi === "konfirmasi_simpan") {
 				chatMessages = chatMessages.map((m) => {
-					if (m.draft && m.draft.status === 'pending') {
-						return { ...m, draft: { ...m.draft, status: 'saved' } };
+					if (m.draft && m.draft.status === "pending") {
+						return { ...m, draft: { ...m.draft, status: "saved" } };
 					}
 					return m;
 				});
 
 				currentActiveDraft = null;
-				const savedDraft = data.transaksi ? { ...data.transaksi, status: 'saved' } : null;
+				const savedDraft = data.transaksi
+					? { ...data.transaksi, status: "saved" }
+					: null;
 				chatMessages = [
 					...chatMessages,
 					{
 						id: Date.now() + 1,
-						role: 'assistant',
+						role: "assistant",
 						content: data.jawaban_teks,
 						savedId: data.savedId,
 						draft: savedDraft,
-						time: botTime
-					}
+						time: botTime,
+					},
 				];
 				saveChatHistory();
 				await loadData();
-			} else if (data.aksi === 'batal') {
+			} else if (data.aksi === "batal") {
 				chatMessages = chatMessages.map((m) => {
-					if (m.draft && m.draft.status === 'pending') {
-						return { ...m, draft: { ...m.draft, status: 'cancelled' } };
+					if (m.draft && m.draft.status === "pending") {
+						return {
+							...m,
+							draft: { ...m.draft, status: "cancelled" },
+						};
 					}
 					return m;
 				});
@@ -864,20 +1358,20 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 					...chatMessages,
 					{
 						id: Date.now() + 1,
-						role: 'assistant',
+						role: "assistant",
 						content: data.jawaban_teks,
-						time: botTime
-					}
+						time: botTime,
+					},
 				];
 			} else {
 				chatMessages = [
 					...chatMessages,
 					{
 						id: Date.now() + 1,
-						role: 'assistant',
+						role: "assistant",
 						content: data.jawaban_teks,
-						time: botTime
-					}
+						time: botTime,
+					},
 				];
 			}
 		} catch (err) {
@@ -885,10 +1379,10 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 				...chatMessages,
 				{
 					id: Date.now() + 1,
-					role: 'assistant',
+					role: "assistant",
 					content: `Maaf, ada kendala: ${err.message}`,
-					time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`
-				}
+					time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`,
+				},
 			];
 		} finally {
 			chatLoading = false;
@@ -899,25 +1393,25 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 	async function confirmDraftDirectly(targetMsg) {
 		if (targetMsg.draft) {
-			targetMsg.draft.status = 'saved';
+			targetMsg.draft.status = "saved";
 		}
 		currentActiveDraft = targetMsg.draft;
-		await sendChatMessage('Ya, betul. Simpan sekarang!');
+		await sendChatMessage("Ya, betul. Simpan sekarang!");
 	}
 
 	function cancelDraftDirectly(targetMsg) {
 		if (targetMsg.draft) {
-			targetMsg.draft.status = 'cancelled';
+			targetMsg.draft.status = "cancelled";
 		}
 		currentActiveDraft = null;
 		chatMessages = [
 			...chatMessages,
 			{
 				id: Date.now(),
-				role: 'assistant',
-				content: 'Draft transaksi telah dibatalkan.',
-				time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`
-			}
+				role: "assistant",
+				content: "Draft transaksi telah dibatalkan.",
+				time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`,
+			},
 		];
 		saveChatHistory();
 		scrollToBottom();
@@ -925,26 +1419,37 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 	function editDraftManually(draft) {
 		form = {
-			tipe: draft.tipe || 'pengeluaran',
-			toko: draft.toko || '',
-			tanggal: draft.tanggal || `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
-			waktu: draft.waktu || `${pad(now.getHours())}:${pad(now.getMinutes())}:00`,
-			kategori: draft.kategori || (draft.tipe === 'pemasukan' ? 'Gaji & Upah' : 'Makanan & Minuman'),
-			metode_bayar: draft.metode_bayar || 'Tunai',
+			tipe: draft.tipe || "pengeluaran",
+			toko: draft.toko || "",
+			tanggal:
+				draft.tanggal ||
+				`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+			waktu:
+				draft.waktu ||
+				`${pad(now.getHours())}:${pad(now.getMinutes())}:00`,
+			kategori:
+				draft.kategori ||
+				(draft.tipe === "pemasukan"
+					? "Gaji & Upah"
+					: "Makanan & Minuman"),
+			metode_bayar: draft.metode_bayar || "Tunai",
 			subtotal: draft.subtotal || 0,
 			pajak: draft.pajak || 0,
 			diskon: draft.diskon || 0,
 			total: draft.total || 0,
-			catatan: draft.catatan || '',
-			gambar_url: draft.gambar_url || '',
-			items: draft.items ? [...draft.items] : []
+			catatan: draft.catatan || "",
+			gambar_url: draft.gambar_url || "",
+			items: draft.items ? [...draft.items] : [],
 		};
-		modeInput = 'manual';
+		modeInput = "manual";
 		showModalTambah = true;
 	}
 
 	function addItem() {
-		form.items = [...form.items, { nama_barang: '', qty: 1, harga_satuan: 0, subtotal: 0 }];
+		form.items = [
+			...form.items,
+			{ nama_barang: "", qty: 1, harga_satuan: 0, subtotal: 0 },
+		];
 	}
 
 	function removeItem(index) {
@@ -955,7 +1460,8 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	function hitungTotal() {
 		let sub = 0;
 		form.items.forEach((itm) => {
-			itm.subtotal = (Number(itm.qty) || 0) * (Number(itm.harga_satuan) || 0);
+			itm.subtotal =
+				(Number(itm.qty) || 0) * (Number(itm.harga_satuan) || 0);
 			sub += itm.subtotal;
 		});
 		form.subtotal = sub;
@@ -966,35 +1472,38 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 	async function simpanTransaksi() {
 		if (!form.toko.trim() && form.items.length === 0 && form.total <= 0) {
-			alert('Mohon isi nama toko / sumber atau nominal transaksi.');
+			alert("Mohon isi nama toko / sumber atau nominal transaksi.");
 			return;
 		}
 
 		loading = true;
-		errorMsg = '';
+		errorMsg = "";
 		try {
-			const res = await fetch('/api/transaksi', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(form)
+			const res = await fetch("/api/transaksi", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(form),
 			});
 			const resData = await res.json();
-			if (!res.ok) throw new Error(resData.error || 'Gagal menyimpan transaksi');
+			if (!res.ok)
+				throw new Error(resData.error || "Gagal menyimpan transaksi");
 
 			showModalTambah = false;
 			resetForm();
 			await loadData();
-			successMsg = 'Transaksi berhasil disimpan!';
-			setTimeout(() => { successMsg = ''; }, 3500);
+			successMsg = "Transaksi berhasil disimpan!";
+			setTimeout(() => {
+				successMsg = "";
+			}, 3500);
 
 			chatMessages = [
 				...chatMessages,
 				{
 					id: Date.now(),
-					role: 'assistant',
-					content: `${form.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran'} "${form.toko || 'Transaksi'}" sebesar ${formatRupiah(form.total)} telah berhasil disimpan!`,
-					time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`
-				}
+					role: "assistant",
+					content: `${form.tipe === "pemasukan" ? "Pemasukan" : "Pengeluaran"} "${form.toko || "Transaksi"}" sebesar ${formatRupiah(form.total)} telah berhasil disimpan!`,
+					time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`,
+				},
 			];
 			scrollToBottom();
 		} catch (err) {
@@ -1005,20 +1514,24 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	}
 
 	function resetForm() {
+		const defaultDompet = dompetList[0]?.nama || "Tunai";
+		const defaultDompetId = dompetList[0]?.id || null;
 		form = {
-			tipe: 'pengeluaran',
-			toko: '',
+			tipe: "pengeluaran",
+			toko: "",
 			tanggal: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
 			waktu: `${pad(now.getHours())}:${pad(now.getMinutes())}:00`,
-			kategori: 'Makanan & Minuman',
-			metode_bayar: 'Tunai',
+			kategori: "Makanan & Minuman",
+			metode_bayar: defaultDompet,
+			dompet: defaultDompet,
+			dompet_id: defaultDompetId,
 			subtotal: 0,
 			pajak: 0,
 			diskon: 0,
 			total: 0,
-			catatan: '',
-			gambar_url: '',
-			items: []
+			catatan: "",
+			gambar_url: "",
+			items: [],
 		};
 	}
 
@@ -1029,7 +1542,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		try {
 			const res = await fetch(`/api/transaksi/${id}`);
 			const data = await res.json();
-			if (!res.ok) throw new Error(data.error || 'Gagal memuat detail');
+			if (!res.ok) throw new Error(data.error || "Gagal memuat detail");
 			detailData = data.transaksi;
 		} catch (e) {
 			alert(e.message);
@@ -1040,10 +1553,13 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	}
 
 	async function deleteTransaksi(id) {
-		if (!confirm('Apakah kamu yakin ingin menghapus transaksi ini?')) return;
+		if (!confirm("Apakah kamu yakin ingin menghapus transaksi ini?"))
+			return;
 		try {
-			const res = await fetch(`/api/transaksi/${id}`, { method: 'DELETE' });
-			if (!res.ok) throw new Error('Gagal menghapus transaksi');
+			const res = await fetch(`/api/transaksi/${id}`, {
+				method: "DELETE",
+			});
+			if (!res.ok) throw new Error("Gagal menghapus transaksi");
 			await loadData();
 			if (showModalDetail) showModalDetail = false;
 		} catch (e) {
@@ -1053,14 +1569,27 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 	function exportCSV() {
 		if (filteredTransaksi.length === 0) {
-			alert('Tidak ada transaksi untuk diekspor.');
+			alert("Tidak ada transaksi untuk diekspor.");
 			return;
 		}
-		const headers = ['ID', 'Tipe', 'Toko/Sumber', 'Tanggal', 'Waktu', 'Kategori', 'Metode Bayar', 'Subtotal', 'Pajak', 'Diskon', 'Total', 'Catatan'];
+		const headers = [
+			"ID",
+			"Tipe",
+			"Toko/Sumber",
+			"Tanggal",
+			"Waktu",
+			"Kategori",
+			"Metode Bayar",
+			"Subtotal",
+			"Pajak",
+			"Diskon",
+			"Total",
+			"Catatan",
+		];
 		const rows = filteredTransaksi.map((t) => [
 			t.id,
 			t.tipe,
-			`"${(t.toko || '').replace(/"/g, '""')}"`,
+			`"${(t.toko || "").replace(/"/g, '""')}"`,
 			t.tanggal,
 			t.waktu,
 			t.kategori,
@@ -1069,22 +1598,27 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			t.pajak,
 			t.diskon,
 			t.total,
-			`"${(t.catatan || '').replace(/"/g, '""')}"`
+			`"${(t.catatan || "").replace(/"/g, '""')}"`,
 		]);
-		const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+		const csvContent =
+			"data:text/csv;charset=utf-8," +
+			[headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
 		const encodedUri = encodeURI(csvContent);
-		const link = document.createElement('a');
-		link.setAttribute('href', encodedUri);
+		const link = document.createElement("a");
+		link.setAttribute("href", encodedUri);
 		let periodSuffix = selectedBulan;
-		if (reportSubTab === 'mingguan') {
+		if (reportSubTab === "mingguan") {
 			const range = getWeekRange(selectedWeekDate);
 			periodSuffix = `Minggu_${range.start}_sd_${range.end}`;
-		} else if (reportSubTab === 'periode') {
+		} else if (reportSubTab === "periode") {
 			periodSuffix = `Periode_${customStartDate}_sd_${customEndDate}`;
-		} else if (reportSubTab === 'harian') {
+		} else if (reportSubTab === "harian") {
 			periodSuffix = `Harian_${selectedTanggal}`;
 		}
-		link.setAttribute('download', `Report_Transaksi_${currentUser?.nama || 'Akun'}_${periodSuffix}.csv`);
+		link.setAttribute(
+			"download",
+			`Report_Transaksi_${currentUser?.nama || "Akun"}_${periodSuffix}.csv`,
+		);
 		document.body.appendChild(link);
 		link.click();
 		document.body.removeChild(link);
@@ -1093,17 +1627,31 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 <svelte:head>
 	{#if !currentUser}
-		<script src="https://chatbotai-five-phi.vercel.app/widget.js" data-bot-id="bot_hk7l2ol"></script>
+		<script
+			src="https://chatbotai-five-phi.vercel.app/widget.js"
+			data-bot-id="bot_hk7l2ol"
+		></script>
 	{/if}
 </svelte:head>
 
-<div class="app-mobile-root">
+<div class="app-mobile-root {currentUser ? 'app-logged-in' : ''}">
 	{#if authChecking}
 		<!-- SPLASH SCREEN -->
 		<div class="auth-loading-screen">
 			<div class="brand-gem-large">
-				<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+				<svg
+					width="28"
+					height="28"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				>
+					<path
+						d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"
+					/>
 				</svg>
 			</div>
 			<div class="splash-title">CatatAi</div>
@@ -1111,7 +1659,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		</div>
 	{:else if !currentUser}
 		<!-- ==============================================
-		     VIEW: LANDING PAGE TWO-COLUMNS (INFO + LOGIN)
+		     VIEW: REDESIGNED COMPREHENSIVE LANDING PAGE
 		     ============================================== -->
 		<div class="landing-page-wrap">
 			<!-- TOP NAVIGATION BAR -->
@@ -1119,8 +1667,19 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 				<div class="landing-nav-inner">
 					<div class="landing-nav-brand">
 						<div class="brand-gem-large">
-							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+							<svg
+								width="24"
+								height="24"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.3"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path
+									d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"
+								/>
 							</svg>
 						</div>
 						<div class="brand-logo-text">
@@ -1129,178 +1688,235 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						</div>
 					</div>
 
+					<nav
+						class="landing-nav-links"
+						aria-label="Navigasi Landing"
+					>
+						<a href="#fitur" class="landing-nav-link">Fitur AI</a>
+						<a href="#demo" class="landing-nav-link">Simulasi</a>
+						<a href="#kantong" class="landing-nav-link"
+							>Multi-Dompet</a
+						>
+						<a href="#komparasi" class="landing-nav-link"
+							>Keunggulan</a
+						>
+					</nav>
+
 					<div class="landing-nav-right">
 						<div class="landing-status-badge">
 							<span class="status-pulse-dot"></span>
-							<span>DeepSeek AI Vision Aktif</span>
+							<span class="status-badge-text"
+								>DeepSeek AI Voice & Vision</span
+							>
 						</div>
-						<button 
-							type="button" 
-							class="nav-cta-btn" 
-							onclick={() => { 
-								authMode = 'register'; 
-								authError = ''; 
-								document.getElementById('auth-box-section')?.scrollIntoView({ behavior: 'smooth' }); 
+						<button
+							type="button"
+							class="nav-cta-btn"
+							onclick={() => {
+								authMode = "register";
+								authError = "";
+								document
+									.getElementById("auth-box-section")
+									?.scrollIntoView({ behavior: "smooth" });
 							}}
 						>
-							Daftar Akun Baru
+							Mulai Gratis ✨
 						</button>
 					</div>
 				</div>
 			</header>
 
-			<!-- MAIN 2-COLUMN GRID -->
+			<!-- MAIN CONTENT CONTAINER -->
 			<main class="landing-main-container">
-				<div class="landing-grid-layout">
-					
-					<!-- ==========================================
-					     COLUMN 1: LANDING PAGE INFO & VALUE
-					     ============================					<!-- ==========================================
-					     COLUMN 1: LANDING PAGE INFO & VALUE
-					     ========================================== -->
-					<section class="landing-info-column">
-						
-						<!-- HERO BADGE -->
+				<!-- ==============================================
+				     SECTION 1: HERO & AUTH SIDE-BY-SIDE
+				     ============================================== -->
+				<section class="landing-hero-auth-section">
+					<div class="landing-hero-content">
 						<div class="hero-tag-badge">
-							<span class="tag-sparkle">✨</span>
-							<span>Solusi Keuangan Pribadi & UMKM Berbasis AI</span>
+							<span class="tag-sparkle">🎙️📸✨</span>
+							<span
+								>Generasi Baru Pembukuan Finansial AI Indonesia</span
+							>
 						</div>
 
-						<!-- HEADLINE & LEAD -->
 						<h1 class="landing-hero-title">
-							Catat Keuangan & Scan Bon <span class="accent-text-highlight">Semudah Kirim Chat</span>
+							Atur Keuangan & Scan Bon, <br class="br-desktop" />
+							<span class="accent-text-highlight"
+								>Semudah Bicara atau Kirim Chat</span
+							>
 						</h1>
+
 						<p class="landing-hero-subtitle">
-							Tinggalkan spreadsheet rumit atau bon tercecer. Cukup kirim chat santai seperti di WhatsApp atau foto nota belanja, AI otomatis merapikan nominal, kategori, dan laporan keuangan Anda secara instan.
+							Tinggalkan spreadsheet rumit dan struk fisik yang
+							tercecer. Cukup <strong
+								>bicara lewat rekaman suara</strong
+							>, <strong>foto nota belanja kasir</strong>, atau
+							<strong>chat santai</strong> seperti di WhatsApp. AI
+							otomatis mengkategorikan pengeluaran, membagi saldo ke
+							multi-dompet, dan menyusun laporan keuangan Anda secara
+							real-time.
 						</p>
 
-						<!-- INTERACTIVE MOCKUP SHOWCASE (CHAT & STRUK SIMULATION) -->
-						<div class="landing-showcase-card">
-							<div class="showcase-card-header">
-								<div class="showcase-assistant-avatar">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
-										<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-									</svg>
-								</div>
-								<div class="showcase-assistant-info">
-									<div class="assistant-name">CatatAi Assistant</div>
-									<div class="assistant-status">
-										<span class="online-indicator"></span> DeepSeek AI Vision Online
-									</div>
-								</div>
-								<span class="showcase-mode-pill">Simulasi AI</span>
+						<!-- QUICK PILLS VALUE -->
+						<div class="hero-quick-perks">
+							<div class="hero-perk-item">
+								<svg
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.5"
+									><polyline points="20 6 9 17 4 12" /></svg
+								>
+								<span>Tanpa Input Rumit</span>
 							</div>
-
-							<div class="showcase-chat-flow">
-								<!-- Message 1: User Natural Text -->
-								<div class="chat-bubble-row user-row">
-									<div class="chat-mock-bubble user-bubble">
-										<p class="chat-text">Kopi latte 28rb dan croissant 35rb di Anomali bayar QRIS ☕🥐</p>
-										<span class="chat-time">13:10 ✓✓</span>
-									</div>
-								</div>
-
-								<!-- Message 2: AI Bot Response -->
-								<div class="chat-bubble-row bot-row">
-									<div class="chat-mock-bubble bot-bubble">
-										<div class="bot-badge-tag">
-											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-											Pengeluaran Dicatat: <strong class="text-danger">&nbsp;Rp 63.000</strong>
-										</div>
-										<div class="bot-micro-meta">
-											<span class="category-chip">🍔 Makanan & Minuman</span>
-											<span class="chip-sub">Anomali Kopi • QRIS</span>
-										</div>
-									</div>
-								</div>
-
-								<!-- Message 3: AI Vision Struk Tag -->
-								<div class="chat-bubble-row bot-row">
-									<div class="chat-mock-bubble bot-bubble receipt-banner-bubble">
-										<div class="bot-badge-tag vision-tag">
-											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-											Scan Nota AI Vision
-										</div>
-										<p class="receipt-banner-text">
-											Foto struk <strong>Alfamart Kemang</strong> otomatis terbaca: <strong>4 item (Rp 89.200)</strong> masuk rekap bulanan!
-										</p>
-									</div>
-								</div>
+							<div class="hero-perk-item">
+								<svg
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.5"
+									><polyline points="20 6 9 17 4 12" /></svg
+								>
+								<span>Multi-Dompet & Transfer Saldo</span>
 							</div>
-						</div>
-
-						<!-- CORE FEATURES HORIZONTAL PILLS -->
-						<div class="landing-features-compact-row">
-							<div class="compact-feature-pill">
-								<div class="pill-icon icon-emerald-soft">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-								</div>
-								<span>Chat Bahasa Alami</span>
-							</div>
-
-							<div class="compact-feature-pill">
-								<div class="pill-icon icon-amber-soft">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-								</div>
-								<span>Scan Bon DeepSeek AI</span>
-							</div>
-
-							<div class="compact-feature-pill">
-								<div class="pill-icon icon-indigo-soft">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-								</div>
-								<span>Dashboard & Ekspor CSV</span>
-							</div>
-
-							<div class="compact-feature-pill">
-								<div class="pill-icon icon-rose-soft">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-								</div>
+							<div class="hero-perk-item">
+								<svg
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.5"
+									><polyline points="20 6 9 17 4 12" /></svg
+								>
 								<span>PWA Mobile Ready</span>
 							</div>
 						</div>
-					</section>
 
-					<!-- ==========================================
-					     COLUMN 2: LOGIN / REGISTER AUTH FORM
-					     ========================================== -->
-					<section class="landing-auth-column" id="auth-box-section">
-						<div class="auth-card-box sticky-auth-box">
-							
+						<!-- ACTION BUTTONS -->
+						<div class="hero-action-row">
+							<button
+								type="button"
+								class="btn-hero-primary"
+								onclick={() => {
+									document
+										.getElementById("auth-box-section")
+										?.scrollIntoView({
+											behavior: "smooth",
+										});
+								}}
+							>
+								<span>Daftar Sekarang — Gratis</span>
+								<svg
+									width="18"
+									height="18"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.2"
+									><line
+										x1="5"
+										y1="12"
+										x2="19"
+										y2="12"
+									/><polyline
+										points="12 5 19 12 12 19"
+									/></svg
+								>
+							</button>
+
+							<button
+								type="button"
+								class="btn-hero-secondary"
+								onclick={() => {
+									document
+										.getElementById("demo")
+										?.scrollIntoView({
+											behavior: "smooth",
+										});
+								}}
+							>
+								<span>Lihat Demo Interaktif</span>
+								<svg
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									><circle cx="12" cy="12" r="10" /><polygon
+										points="10 8 16 12 10 16 10 8"
+									/></svg
+								>
+							</button>
+						</div>
+					</div>
+
+					<!-- COLUMN 2: LOGIN / REGISTER AUTH FORM -->
+					<div class="landing-auth-column" id="auth-box-section">
+						<div class="auth-card-box">
 							<!-- AUTH CARD HEADER -->
 							<div class="auth-brand-head">
 								<div class="brand-gem-large">
-									<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-										<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+									<svg
+										width="26"
+										height="26"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path
+											d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"
+										/>
 									</svg>
 								</div>
 								<h2 class="auth-app-title">
-									{authMode === 'login' ? 'Masuk ke CatatAi' : 'Daftar Akun Baru'}
+									{authMode === "login"
+										? "Masuk ke CatatAi"
+										: "Buat Akun Gratis"}
 								</h2>
 								<p class="auth-app-desc">
-									{authMode === 'login' 
-										? 'Masuk untuk mengakses asisten pencatatan & ringkasan keuangan Anda' 
-										: 'Buat akun dalam hitungan detik. Gratis & terenkripsi.'}
+									{authMode === "login"
+										? "Kelola catatan keuangan & dompet Anda dengan asisten AI pintar"
+										: "Daftar dalam 10 detik. Akses seluruh fitur AI tanpa biaya langganan."}
 								</p>
 							</div>
 
 							<!-- TAB SWITCHER: MASUK / DAFTAR -->
 							<div class="auth-tabs-row" role="tablist">
-								<button 
-									type="button" 
+								<button
+									type="button"
 									role="tab"
-									aria-selected={authMode === 'login'}
-									class="auth-tab-btn {authMode === 'login' ? 'active' : ''}" 
-									onclick={() => { authMode = 'login'; authError = ''; }}
+									aria-selected={authMode === "login"}
+									class="auth-tab-btn {authMode === 'login'
+										? 'active'
+										: ''}"
+									onclick={() => {
+										authMode = "login";
+										authError = "";
+									}}
 								>
 									Masuk Akun
 								</button>
-								<button 
-									type="button" 
+								<button
+									type="button"
 									role="tab"
-									aria-selected={authMode === 'register'}
-									class="auth-tab-btn {authMode === 'register' ? 'active' : ''}" 
-									onclick={() => { authMode = 'register'; authError = ''; }}
+									aria-selected={authMode === "register"}
+									class="auth-tab-btn {authMode === 'register'
+										? 'active'
+										: ''}"
+									onclick={() => {
+										authMode = "register";
+										authError = "";
+									}}
 								>
 									Daftar Baru
 								</button>
@@ -1309,28 +1925,69 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							<!-- ERROR BANNER -->
 							{#if authError}
 								<div class="auth-error-banner" role="alert">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+									<svg
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+									>
+										<circle cx="12" cy="12" r="10" /><line
+											x1="12"
+											y1="8"
+											x2="12"
+											y2="12"
+										/><line
+											x1="12"
+											y1="16"
+											x2="12.01"
+											y2="16"
+										/>
 									</svg>
 									<span>{authError}</span>
 								</div>
 							{/if}
 
 							<!-- AUTH FORM -->
-							<form class="auth-form-stack" onsubmit={(e) => { e.preventDefault(); handleAuthSubmit(); }}>
-								{#if authMode === 'register'}
+							<form
+								class="auth-form-stack"
+								onsubmit={(e) => {
+									e.preventDefault();
+									handleAuthSubmit();
+								}}
+							>
+								{#if authMode === "register"}
 									<div class="auth-field">
-										<label for="inp-auth-nama">Nama Lengkap</label>
+										<label for="inp-auth-nama"
+											>Nama Lengkap</label
+										>
 										<div class="auth-input-wrap">
-											<svg class="auth-input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-												<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+											<svg
+												class="auth-input-icon"
+												width="16"
+												height="16"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+											>
+												<path
+													d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"
+												/><circle
+													cx="12"
+													cy="7"
+													r="4"
+												/>
 											</svg>
-											<input 
-												id="inp-auth-nama" 
-												type="text" 
-												placeholder="Contoh: Budi Santoso" 
-												bind:value={authForm.nama} 
-												required 
+											<input
+												id="inp-auth-nama"
+												type="text"
+												placeholder="Contoh: Budi Pratama"
+												bind:value={authForm.nama}
+												required
 												autocomplete="name"
 											/>
 										</div>
@@ -1338,17 +1995,33 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 								{/if}
 
 								<div class="auth-field">
-									<label for="inp-auth-email">Alamat Email</label>
+									<label for="inp-auth-email"
+										>Alamat Email</label
+									>
 									<div class="auth-input-wrap">
-										<svg class="auth-input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-											<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+										<svg
+											class="auth-input-icon"
+											width="16"
+											height="16"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<path
+												d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"
+											/><polyline
+												points="22,6 12,13 2,6"
+											/>
 										</svg>
-										<input 
-											id="inp-auth-email" 
-											type="email" 
-											placeholder="nama@email.com" 
-											bind:value={authForm.email} 
-											required 
+										<input
+											id="inp-auth-email"
+											type="email"
+											placeholder="nama@email.com"
+											bind:value={authForm.email}
+											required
 											autocomplete="email"
 										/>
 									</div>
@@ -1356,111 +2029,1176 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 								<div class="auth-field">
 									<div class="field-label-split">
-										<label for="inp-auth-pwd">Password</label>
-										<button 
-											type="button" 
-											class="btn-toggle-pwd" 
-											onclick={() => { showPassword = !showPassword; }}
+										<label for="inp-auth-pwd"
+											>Password</label
+										>
+										<button
+											type="button"
+											class="btn-toggle-pwd"
+											onclick={() => {
+												showPassword = !showPassword;
+											}}
 											aria-label="Lihat atau sembunyikan password"
 										>
-											{showPassword ? 'Sembunyikan' : 'Tampilkan'}
+											{showPassword
+												? "Sembunyikan"
+												: "Tampilkan"}
 										</button>
 									</div>
 									<div class="auth-input-wrap">
-										<svg class="auth-input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-											<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+										<svg
+											class="auth-input-icon"
+											width="16"
+											height="16"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<rect
+												x="3"
+												y="11"
+												width="18"
+												height="11"
+												rx="2"
+												ry="2"
+											/><path
+												d="M7 11V7a5 5 0 0 1 10 0v4"
+											/>
 										</svg>
-										<input 
-											id="inp-auth-pwd" 
-											type={showPassword ? 'text' : 'password'} 
-											placeholder={authMode === 'register' ? 'Minimal 6 karakter' : 'Masukkan password'} 
-											bind:value={authForm.password} 
-											required 
+										<input
+											id="inp-auth-pwd"
+											type={showPassword
+												? "text"
+												: "password"}
+											placeholder={authMode === "register"
+												? "Minimal 6 karakter"
+												: "Masukkan password"}
+											bind:value={authForm.password}
+											required
 											minlength="6"
-											autocomplete={authMode === 'register' ? 'new-password' : 'current-password'}
+											autocomplete={authMode ===
+											"register"
+												? "new-password"
+												: "current-password"}
 										/>
 									</div>
 								</div>
 
-								<button type="submit" class="btn-auth-submit" disabled={authLoading}>
+								<button
+									type="submit"
+									class="btn-auth-submit"
+									disabled={authLoading}
+								>
 									{#if authLoading}
 										<span class="btn-spinner"></span>
-										<span>Memproses...</span>
-									{:else if authMode === 'register'}
-										<span>Daftar Akun CatatAi Gratis ✨</span>
+										<span>Memproses Akun...</span>
+									{:else if authMode === "register"}
+										<span
+											>Daftar Akun CatatAi Gratis ✨</span
+										>
 									{:else}
-										<span>Masuk ke Akun Anda 🚀</span>
+										<span>Masuk ke Dashboard 🚀</span>
 									{/if}
 								</button>
 							</form>
 
 							<!-- MODE TOGGLE HELPER LINK -->
 							<div class="auth-switch-helper">
-								{#if authMode === 'login'}
+								{#if authMode === "login"}
 									<span>Belum memiliki akun? </span>
-									<button 
-										type="button" 
-										class="link-switch-auth" 
-										onclick={() => { authMode = 'register'; authError = ''; }}
+									<button
+										type="button"
+										class="link-switch-auth"
+										onclick={() => {
+											authMode = "register";
+											authError = "";
+										}}
 									>
-										Daftar akun baru di sini
+										Daftar akun baru gratis
 									</button>
 								{:else}
-									<span>Sudah pernah mendaftar? </span>
-									<button 
-										type="button" 
-										class="link-switch-auth" 
-										onclick={() => { authMode = 'login'; authError = ''; }}
+									<span>Sudah memiliki akun? </span>
+									<button
+										type="button"
+										class="link-switch-auth"
+										onclick={() => {
+											authMode = "login";
+											authError = "";
+										}}
 									>
-										Masuk ke akun Anda
+										Masuk di sini
 									</button>
 								{/if}
 							</div>
 
 							<!-- SECURITY BADGE -->
 							<div class="auth-security-notice">
-								<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-									<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+								<svg
+									width="15"
+									height="15"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<path
+										d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"
+									/>
 								</svg>
 								<div class="security-text-box">
-									<strong>Data Terisolasi Penuh & Aman</strong>
-									<p>Setiap transaksi tersimpan di akun pribadi Anda dengan hashing sandi Scrypt & sesi cookie HTTP-Only.</p>
+									<strong
+										>Privasi Bank-Grade Terisolasi</strong
+									>
+									<p>
+										Data keuangan Anda tersimpan privat di
+										database terenkripsi Neon DB PostgreSQL
+										dengan Scrypt Hash & Cookie HTTP-Only.
+									</p>
 								</div>
 							</div>
-
-							<!-- VALUE BULLETS BELOW CARD -->
-							<div class="auth-quick-perks">
-								<div class="perk-bullet">
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-									<span>Gratis digunakan</span>
-								</div>
-								<div class="perk-bullet">
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-									<span>Scan Nota DeepSeek AI</span>
-								</div>
-								<div class="perk-bullet">
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-									<span>Bisa diinstal di HP (PWA)</span>
-								</div>
-							</div>
-
 						</div>
-					</section>
+					</div>
+				</section>
 
-				</div>
+				<!-- ==============================================
+				     SECTION 2: INTERACTIVE LIVE DEMO SHOWCASE (#demo)
+				     ============================================== -->
+				<section class="landing-section-block" id="demo">
+					<div class="section-header-center">
+						<span class="section-kicker"
+							>✨ INTERACTIVE SHOWCASE</span
+						>
+						<h2 class="section-heading">
+							Coba Rasakan Kemudahan CatatAi
+						</h2>
+						<p class="section-subtext">
+							Pilih mode pencatatan di bawah untuk melihat
+							bagaimana AI memproses transaksi keuangan secara
+							cerdas.
+						</p>
+					</div>
+
+					<!-- DEMO TAB SWITCHER -->
+					<div class="demo-tabs-carousel">
+						<button
+							type="button"
+							class="demo-nav-tab {landingDemoTab === 'voice'
+								? 'active'
+								: ''}"
+							onclick={() => {
+								landingDemoTab = "voice";
+							}}
+						>
+							<span class="demo-tab-icon">🎙️</span>
+							<span class="demo-tab-label"
+								>Rekam Suara (Voice AI)</span
+							>
+						</button>
+						<button
+							type="button"
+							class="demo-nav-tab {landingDemoTab === 'scan'
+								? 'active'
+								: ''}"
+							onclick={() => {
+								landingDemoTab = "scan";
+							}}
+						>
+							<span class="demo-tab-icon">📸</span>
+							<span class="demo-tab-label"
+								>Scan Bon (Vision AI)</span
+							>
+						</button>
+						<button
+							type="button"
+							class="demo-nav-tab {landingDemoTab === 'dompet'
+								? 'active'
+								: ''}"
+							onclick={() => {
+								landingDemoTab = "dompet";
+							}}
+						>
+							<span class="demo-tab-icon">💳</span>
+							<span class="demo-tab-label"
+								>Multi-Dompet & Transfer</span
+							>
+						</button>
+						<button
+							type="button"
+							class="demo-nav-tab {landingDemoTab === 'report'
+								? 'active'
+								: ''}"
+							onclick={() => {
+								landingDemoTab = "report";
+							}}
+						>
+							<span class="demo-tab-icon">📊</span>
+							<span class="demo-tab-label"
+								>Grafik 7 Hari & Rekap</span
+							>
+						</button>
+					</div>
+
+					<!-- INTERACTIVE DEMO CARD VIEW -->
+					<div class="demo-interactive-stage">
+						{#if landingDemoTab === "voice"}
+							<!-- TAB 1: VOICE AI DEMO -->
+							<div class="demo-panel voice-panel">
+								<div class="demo-panel-header">
+									<div class="demo-panel-title">
+										<span class="pulse-audio-icon">🎙️</span>
+										<div>
+											<strong
+												>Voice-to-Expense Intelligence</strong
+											>
+											<span
+												>Merekam ucapan langsung dalam
+												Bahasa Indonesia sehari-hari</span
+											>
+										</div>
+									</div>
+									<span class="badge-tech"
+										>Web Speech & AI NLU</span
+									>
+								</div>
+
+								<div class="voice-simulation-content">
+									<!-- Wave audio bar -->
+									<div class="voice-audio-card">
+										<div class="recording-badge-mock">
+											<span class="rec-red-dot"></span>
+											<span>Merekam Audio (00:03)</span>
+										</div>
+										<div class="audio-waves-visual">
+											<span class="wave-bar h1"></span>
+											<span class="wave-bar h3"></span>
+											<span class="wave-bar h5"></span>
+											<span class="wave-bar h2"></span>
+											<span class="wave-bar h4"></span>
+											<span class="wave-bar h5"></span>
+											<span class="wave-bar h3"></span>
+											<span class="wave-bar h1"></span>
+										</div>
+										<p class="voice-transcription-preview">
+											"Tadi barusan ngopi bareng klien 45
+											ribu bayar pakai QRIS Gopay"
+										</p>
+									</div>
+
+									<!-- Arrow transformation -->
+									<div class="demo-arrow-flow">
+										<svg
+											width="24"
+											height="24"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											><line
+												x1="12"
+												y1="5"
+												x2="12"
+												y2="19"
+											/><polyline
+												points="19 12 12 19 5 12"
+											/></svg
+										>
+										<span>AI Parsing Otomatis</span>
+									</div>
+
+									<!-- Result Card -->
+									<div class="demo-result-card">
+										<div class="result-header">
+											<div class="result-badge-success">
+												<svg
+													width="14"
+													height="14"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2.5"
+													><polyline
+														points="20 6 9 17 4 12"
+													/></svg
+												>
+												<span
+													>Pengeluaran Berhasil
+													Dicatat</span
+												>
+											</div>
+											<span class="result-time"
+												>Baru Saja</span
+											>
+										</div>
+										<div class="result-body">
+											<div
+												class="result-amount danger-text"
+											>
+												- Rp 45.000
+											</div>
+											<div class="result-desc">
+												Kopi bareng klien
+											</div>
+											<div class="result-tags">
+												<span
+													class="tag-pill category-pill"
+													>☕ Makanan & Minuman</span
+												>
+												<span
+													class="tag-pill wallet-pill"
+													>📱 E-Wallet Gopay</span
+												>
+												<span
+													class="tag-pill voice-pill"
+													>🎙️ Rekaman Suara</span
+												>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						{:else if landingDemoTab === "scan"}
+							<!-- TAB 2: VISION SCAN STRUK DEMO -->
+							<div class="demo-panel scan-panel">
+								<div class="demo-panel-header">
+									<div class="demo-panel-title">
+										<span class="pulse-audio-icon">📸</span>
+										<div>
+											<strong
+												>Vision AI Receipt Scanner</strong
+											>
+											<span
+												>Foto struk kasir toko, AI
+												membaca rincian belanjaan dan
+												total</span
+											>
+										</div>
+									</div>
+									<span class="badge-tech"
+										>DeepSeek OCR Vision</span
+									>
+								</div>
+
+								<div class="scan-simulation-content">
+									<!-- Mock Receipt Preview -->
+									<div class="mock-receipt-sheet">
+										<div class="receipt-torn-top"></div>
+										<div class="receipt-inner">
+											<div class="receipt-store-title">
+												SUPERMARKET SEGAR
+											</div>
+											<div class="receipt-date">
+												14/10/2026 • 11:20:15 WIB
+											</div>
+											<div class="receipt-divider">
+												-----------------------------
+											</div>
+											<div class="receipt-item-row">
+												<span
+													>Susu UHT Full Cream 1L</span
+												>
+												<span>Rp 21.500</span>
+											</div>
+											<div class="receipt-item-row">
+												<span>Roti Gandum Toast</span>
+												<span>Rp 18.000</span>
+											</div>
+											<div class="receipt-item-row">
+												<span
+													>Telur Ayam Negeri 10btr</span
+												>
+												<span>Rp 28.500</span>
+											</div>
+											<div class="receipt-divider">
+												-----------------------------
+											</div>
+											<div class="receipt-total-row">
+												<strong>TOTAL PEMBELIAN</strong>
+												<strong>Rp 68.000</strong>
+											</div>
+										</div>
+										<div
+											class="receipt-scan-laser-line"
+										></div>
+									</div>
+
+									<!-- Arrow transformation -->
+									<div class="demo-arrow-flow">
+										<svg
+											width="24"
+											height="24"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											><line
+												x1="12"
+												y1="5"
+												x2="12"
+												y2="19"
+											/><polyline
+												points="19 12 12 19 5 12"
+											/></svg
+										>
+										<span>Ekstraksi OCR Vision Instan</span>
+									</div>
+
+									<!-- Result Card -->
+									<div class="demo-result-card">
+										<div class="result-header">
+											<div class="result-badge-success">
+												<svg
+													width="14"
+													height="14"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2.5"
+													><polyline
+														points="20 6 9 17 4 12"
+													/></svg
+												>
+												<span
+													>Nota Belanja Terverifikasi</span
+												>
+											</div>
+											<span class="result-time"
+												>14 Okt 2026</span
+											>
+										</div>
+										<div class="result-body">
+											<div
+												class="result-amount danger-text"
+											>
+												- Rp 68.000
+											</div>
+											<div class="result-desc">
+												Supermarket Segar (Susu UHT,
+												Roti, Telur)
+											</div>
+											<div class="result-tags">
+												<span
+													class="tag-pill category-pill"
+													>🛒 Kebutuhan Harian</span
+												>
+												<span
+													class="tag-pill wallet-pill"
+													>💳 Rekening Bank</span
+												>
+												<span class="tag-pill scan-pill"
+													>📸 Scan Struk AI</span
+												>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						{:else if landingDemoTab === "dompet"}
+							<!-- TAB 3: MULTI-DOMPET & TRANSFER DEMO -->
+							<div class="demo-panel dompet-panel">
+								<div class="demo-panel-header">
+									<div class="demo-panel-title">
+										<span class="pulse-audio-icon">💳</span>
+										<div>
+											<strong
+												>Multi-Dompet & Transfer Saldo
+												Antar-Kantong</strong
+											>
+											<span
+												>Pisahkan uang saku, rekening
+												operasional, dan e-wallet dengan
+												mudah</span
+											>
+										</div>
+									</div>
+									<span class="badge-tech"
+										>Real-time Balance Ledger</span
+									>
+								</div>
+
+								<div class="dompet-simulation-content">
+									<div class="wallets-grid-demo">
+										<!-- Card 1: Dompet Tunai -->
+										<div class="demo-wallet-card cash-card">
+											<div class="d-wallet-top">
+												<span class="d-wallet-icon"
+													>💵</span
+												>
+												<span class="d-wallet-type"
+													>Uang Saku</span
+												>
+											</div>
+											<div class="d-wallet-name">
+												Dompet Tunai
+											</div>
+											<div class="d-wallet-balance">
+												Rp 450.000
+											</div>
+											<div class="d-wallet-action-hint">
+												Uang di dompet fisik
+											</div>
+										</div>
+
+										<!-- Card 2: Rekening Bank -->
+										<div class="demo-wallet-card bank-card">
+											<div class="d-wallet-top">
+												<span class="d-wallet-icon"
+													>🏦</span
+												>
+												<span class="d-wallet-type"
+													>Bank Utama</span
+												>
+											</div>
+											<div class="d-wallet-name">
+												Rekening BCA
+											</div>
+											<div class="d-wallet-balance">
+												Rp 8.250.000
+											</div>
+											<div class="d-wallet-action-hint">
+												Tabungan & Gaji
+											</div>
+										</div>
+
+										<!-- Card 3: E-Wallet -->
+										<div
+											class="demo-wallet-card ewallet-card"
+										>
+											<div class="d-wallet-top">
+												<span class="d-wallet-icon"
+													>📱</span
+												>
+												<span class="d-wallet-type"
+													>Digital Wallet</span
+												>
+											</div>
+											<div class="d-wallet-name">
+												Gopay / ShopeePay
+											</div>
+											<div class="d-wallet-balance">
+												Rp 320.000
+											</div>
+											<div class="d-wallet-action-hint">
+												Transport & Jajan QRIS
+											</div>
+										</div>
+									</div>
+
+									<!-- Transfer Flow Box -->
+									<div class="demo-transfer-notice">
+										<div class="transfer-badge">
+											<svg
+												width="15"
+												height="15"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+												><path d="M17 1l4 4-4 4" /><path
+													d="M3 11V9a4 4 0 0 1 4-4h14"
+												/><path
+													d="M7 23l-4-4 4-4"
+												/><path
+													d="M21 13v2a4 4 0 0 1-4 4H3"
+												/></svg
+											>
+											<span
+												>Fitur Transfer Antar-Kantong</span
+											>
+										</div>
+										<p>
+											Top-up e-wallet dari BCA sebesar <strong
+												>Rp 100.000</strong
+											>? Cukup gunakan menu Transfer,
+											saldo kedua dompet disesuaikan
+											otomatis tanpa mengacaukan kalkulasi
+											pengeluaran Anda!
+										</p>
+									</div>
+								</div>
+							</div>
+						{:else if landingDemoTab === "report"}
+							<!-- TAB 4: REPORT & ANALYTICS DEMO -->
+							<div class="demo-panel report-panel">
+								<div class="demo-panel-header">
+									<div class="demo-panel-title">
+										<span class="pulse-audio-icon">📊</span>
+										<div>
+											<strong
+												>Visualisasi Grafik & Rekap
+												Otomatis</strong
+											>
+											<span
+												>Grafik batang 7 hari, rekap
+												bulanan, dan perincian kategori
+												belanja</span
+											>
+										</div>
+									</div>
+									<span class="badge-tech"
+										>Dynamic Charts & CSV Export</span
+									>
+								</div>
+
+								<div class="report-simulation-content">
+									<!-- Visual Bar Chart Mockup -->
+									<div class="demo-chart-box">
+										<div class="chart-box-header">
+											<strong
+												>Tren Pengeluaran 7 Hari
+												Terakhir</strong
+											>
+											<span class="chart-summary-stat"
+												>Total: Rp 645.000</span
+											>
+										</div>
+										<div class="demo-bars-wrap">
+											<div class="demo-bar-col">
+												<div
+													class="demo-bar-fill"
+													style="height: 35%"
+												></div>
+												<span class="demo-bar-day"
+													>Sen</span
+												>
+											</div>
+											<div class="demo-bar-col">
+												<div
+													class="demo-bar-fill"
+													style="height: 60%"
+												></div>
+												<span class="demo-bar-day"
+													>Sel</span
+												>
+											</div>
+											<div class="demo-bar-col">
+												<div
+													class="demo-bar-fill active-highest"
+													style="height: 90%"
+												></div>
+												<span class="demo-bar-day"
+													>Rab</span
+												>
+											</div>
+											<div class="demo-bar-col">
+												<div
+													class="demo-bar-fill"
+													style="height: 45%"
+												></div>
+												<span class="demo-bar-day"
+													>Kam</span
+												>
+											</div>
+											<div class="demo-bar-col">
+												<div
+													class="demo-bar-fill"
+													style="height: 70%"
+												></div>
+												<span class="demo-bar-day"
+													>Jum</span
+												>
+											</div>
+											<div class="demo-bar-col">
+												<div
+													class="demo-bar-fill"
+													style="height: 85%"
+												></div>
+												<span class="demo-bar-day"
+													>Sab</span
+												>
+											</div>
+											<div class="demo-bar-col">
+												<div
+													class="demo-bar-fill"
+													style="height: 25%"
+												></div>
+												<span class="demo-bar-day"
+													>Min</span
+												>
+											</div>
+										</div>
+									</div>
+
+									<!-- Breakdown Cards -->
+									<div class="demo-breakdown-row">
+										<div class="breakdown-card">
+											<span class="b-label"
+												>Pemasukan Bulan Ini</span
+											>
+											<span class="b-val success-text"
+												>Rp 9.500.000</span
+											>
+										</div>
+										<div class="breakdown-card">
+											<span class="b-label"
+												>Pengeluaran Bulan Ini</span
+											>
+											<span class="b-val danger-text"
+												>Rp 4.120.000</span
+											>
+										</div>
+										<div class="breakdown-card">
+											<span class="b-label"
+												>Saldo Bersih / Tabungan</span
+											>
+											<span class="b-val primary-text"
+												>Rp 5.380.000</span
+											>
+										</div>
+									</div>
+								</div>
+							</div>
+						{/if}
+					</div>
+				</section>
+
+				<!-- ==============================================
+				     SECTION 3: BENTO GRID FITUR LENGKAP (#fitur)
+				     ============================================== -->
+				<section class="landing-section-block" id="fitur">
+					<div class="section-header-center">
+						<span class="section-kicker"
+							>✨ FITUR LENGKAP CATATAI</span
+						>
+						<h2 class="section-heading">
+							Semua Yang Anda Butuhkan Untuk Finansial Sehat
+						</h2>
+						<p class="section-subtext">
+							Dari pencatatan harian hingga laporan akhir bulan,
+							semua dirancang cerdas, cepat, dan mudah digunakan.
+						</p>
+					</div>
+
+					<div class="bento-features-grid">
+						<!-- BENTO 1: VOICE OVER -->
+						<div class="bento-card bento-voice highlight-border">
+							<div class="bento-badge-chip">Baru 🎙️</div>
+							<div class="bento-icon-box">
+								<svg
+									width="26"
+									height="26"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.2"
+									><path
+										d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 6 0V4a3 3 0 0 0-3-3z"
+									/><path
+										d="M19 10v2a7 7 0 0 1-14 0v-2"
+									/><line
+										x1="12"
+										y1="19"
+										x2="12"
+										y2="23"
+									/><line
+										x1="8"
+										y1="23"
+										x2="16"
+										y2="23"
+									/></svg
+								>
+							</div>
+							<h3 class="bento-title">Speech-to-Text AI Voice</h3>
+							<p class="bento-desc">
+								Sedang berkendara atau jalan santai? Cukup tekan
+								tombol mikrofon dan sebutkan transaksi Anda. AI
+								otomatis mentranskripsi dan mengelompokkan ke
+								pos anggaran yang tepat.
+							</p>
+							<div class="bento-mini-pill">
+								🎙️ Bahasa Indonesia Alami
+							</div>
+						</div>
+
+						<!-- BENTO 2: VISION RECEIPT -->
+						<div class="bento-card bento-vision highlight-border">
+							<div class="bento-badge-chip">AI Vision 📸</div>
+							<div class="bento-icon-box">
+								<svg
+									width="26"
+									height="26"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.2"
+									><path
+										d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"
+									/><circle cx="12" cy="13" r="4" /></svg
+								>
+							</div>
+							<h3 class="bento-title">Scan Bon Kasir Otomatis</h3>
+							<p class="bento-desc">
+								Tak perlu lagi mengetik puluhan item belanjaan.
+								Cukup ambil foto nota fisik minimarket atau
+								kafe, DeepSeek Vision mengekstrak toko, item,
+								nominal, dan tanggal secara presisi.
+							</p>
+							<div class="bento-mini-pill">
+								📸 OCR Nota Cepat & Akurat
+							</div>
+						</div>
+
+						<!-- BENTO 3: MULTI DOMPET (#kantong) -->
+						<div class="bento-card bento-wallets" id="kantong">
+							<div class="bento-icon-box">
+								<svg
+									width="26"
+									height="26"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.2"
+									><rect
+										x="1"
+										y="4"
+										width="22"
+										height="16"
+										rx="2"
+										ry="2"
+									/><line
+										x1="1"
+										y1="10"
+										x2="23"
+										y2="10"
+									/></svg
+								>
+							</div>
+							<h3 class="bento-title">
+								Multi-Dompet & Transfer Saldo
+							</h3>
+							<p class="bento-desc">
+								Kelola uang kas di dompet, rekening tabungan,
+								dan berbagai e-wallet Anda. Lengkap dengan fitur
+								transfer saldo antar-kantong tanpa mengotori
+								laporan arus kas.
+							</p>
+							<div class="bento-mini-pill">
+								💳 Kantong Terpisah Rapi
+							</div>
+						</div>
+
+						<!-- BENTO 4: CHARTS & EXPORT -->
+						<div class="bento-card bento-analytics">
+							<div class="bento-icon-box">
+								<svg
+									width="26"
+									height="26"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.2"
+									><line
+										x1="18"
+										y1="20"
+										x2="18"
+										y2="10"
+									/><line
+										x1="12"
+										y1="20"
+										x2="12"
+										y2="4"
+									/><line
+										x1="6"
+										y1="20"
+										x2="6"
+										y2="14"
+									/></svg
+								>
+							</div>
+							<h3 class="bento-title">
+								Laporan Mingguan & Bulanan
+							</h3>
+							<p class="bento-desc">
+								Pantau pengeluaran dengan visual bar chart 7
+								hari yang interaktif. Temukan pos pengeluaran
+								paling boros dan unduh rekap data dalam format
+								spreadsheet Excel/CSV.
+							</p>
+							<div class="bento-mini-pill">
+								📊 Grafik 7 Hari & Ekspor CSV
+							</div>
+						</div>
+
+						<!-- BENTO 5: CHATBOT FINANCIAL -->
+						<div class="bento-card bento-chat">
+							<div class="bento-icon-box">
+								<svg
+									width="26"
+									height="26"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.2"
+									><path
+										d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+									/></svg
+								>
+							</div>
+							<h3 class="bento-title">
+								Chat Interaktif Asisten Cerdas
+							</h3>
+							<p class="bento-desc">
+								Ketik pesan layaknya chat ke teman. AI memahami
+								konteks multi-transaksi, kalimat gaul, singkatan
+								("rb", "k", "jt"), dan otomatis menghitung
+								totalnya untuk Anda.
+							</p>
+							<div class="bento-mini-pill">
+								💬 DeepSeek AI Natural Parsing
+							</div>
+						</div>
+
+						<!-- BENTO 6: PWA MOBILE -->
+						<div class="bento-card bento-pwa">
+							<div class="bento-icon-box">
+								<svg
+									width="26"
+									height="26"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.2"
+									><rect
+										x="5"
+										y="2"
+										width="14"
+										height="20"
+										rx="2"
+										ry="2"
+									/><line
+										x1="12"
+										y1="18"
+										x2="12.01"
+										y2="18"
+									/></svg
+								>
+							</div>
+							<h3 class="bento-title">
+								Aplikasi Native PWA di HP
+							</h3>
+							<p class="bento-desc">
+								Pasang langsung ke layar utama Android atau iOS
+								Anda tanpa lewat toko aplikasi. Ringan,
+								responsif, dan membuka instan secepat aplikasi
+								mobile native.
+							</p>
+							<div class="bento-mini-pill">
+								📱 Install Langsung ke Layar HP
+							</div>
+						</div>
+					</div>
+				</section>
+
+				<!-- ==============================================
+				     SECTION 4: KOMPARASI (KENAPA CATATAI?) (#komparasi)
+				     ============================================== -->
+				<section class="landing-section-block" id="komparasi">
+					<div class="section-header-center">
+						<span class="section-kicker"
+							>⚖️ PERBANDINGAN CERDAS</span
+						>
+						<h2 class="section-heading">
+							Mengapa Beralih ke CatatAi?
+						</h2>
+						<p class="section-subtext">
+							Lihat bagaimana CatatAi menghemat waktu Anda
+							dibandingkan metode manual atau aplikasi
+							konvensional.
+						</p>
+					</div>
+
+					<div class="comparison-table-wrapper">
+						<table class="comparison-table">
+							<thead>
+								<tr>
+									<th class="th-feature">Fitur & Kemudahan</th
+									>
+									<th class="th-catatai highlight-col"
+										>CatatAi (Modern AI)</th
+									>
+									<th class="th-other"
+										>Aplikasi Keuangan Lama</th
+									>
+									<th class="th-other"
+										>Spreadsheet Excel Manual</th
+									>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td class="td-feature-title"
+										>Input Suara (Voice Note)</td
+									>
+									<td class="highlight-col"
+										><span class="badge-yes"
+											>✅ Otomatis (Bicara Santai)</span
+										></td
+									>
+									<td
+										><span class="badge-no"
+											>❌ Tidak Ada</span
+										></td
+									>
+									<td
+										><span class="badge-no"
+											>❌ Tidak Ada</span
+										></td
+									>
+								</tr>
+								<tr>
+									<td class="td-feature-title"
+										>Scan Foto Bon / Struk Kasir</td
+									>
+									<td class="highlight-col"
+										><span class="badge-yes"
+											>✅ AI Vision OCR Terpadu</span
+										></td
+									>
+									<td
+										><span class="badge-neutral"
+											>⚠️ Terbatas / Perlu Langganan Mahal</span
+										></td
+									>
+									<td
+										><span class="badge-no"
+											>❌ Harus Ketik Manual Satu per Satu</span
+										></td
+									>
+								</tr>
+								<tr>
+									<td class="td-feature-title"
+										>Cara Catat Transaksi</td
+									>
+									<td class="highlight-col"
+										><span class="badge-yes"
+											>✅ Chat Bahasa Manusia Sehari-hari</span
+										></td
+									>
+									<td
+										><span class="badge-neutral"
+											>⚠️ Buka Form Rumit (10 Dropdown)</span
+										></td
+									>
+									<td
+										><span class="badge-neutral"
+											>⚠️ Masukkan Baris & Rumus Sendiri</span
+										></td
+									>
+								</tr>
+								<tr>
+									<td class="td-feature-title"
+										>Multi-Dompet & Transfer Antar-Kantong</td
+									>
+									<td class="highlight-col"
+										><span class="badge-yes"
+											>✅ Tunai, Bank & E-Wallet Real-Time</span
+										></td
+									>
+									<td
+										><span class="badge-neutral"
+											>⚠️ Terbatas / Membingungkan</span
+										></td
+									>
+									<td
+										><span class="badge-neutral"
+											>⚠️ Butuh Sheet & Rumus Tambahan</span
+										></td
+									>
+								</tr>
+								<tr>
+									<td class="td-feature-title"
+										>Waktu Yang Dibutuhkan</td
+									>
+									<td class="highlight-col"
+										><span class="badge-yes"
+											>⚡ 2 Detik (Instan)</span
+										></td
+									>
+									<td
+										><span class="badge-neutral"
+											>⏱️ 1-3 Menit Tiap Bon</span
+										></td
+									>
+									<td
+										><span class="badge-neutral"
+											>⏱️ 10-20 Menit Tiap Rekap</span
+										></td
+									>
+								</tr>
+								<tr>
+									<td class="td-feature-title">Biaya Akses</td
+									>
+									<td class="highlight-col"
+										><span class="badge-yes"
+											>🎉 Gratis & Mudah Digunakan</span
+										></td
+									>
+									<td
+										><span class="badge-neutral"
+											>⚠️ Banyak Iklan Mengganggu</span
+										></td
+									>
+									<td
+										><span class="badge-neutral"
+											>⚠️ Lisensi Office / Waktu Terbuang</span
+										></td
+									>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</section>
+
+				<!-- ==============================================
+				     SECTION 5: BOTTOM CALL TO ACTION
+				     ============================================== -->
+				<section class="landing-bottom-cta">
+					<div class="bottom-cta-card">
+						<div class="bottom-cta-sparkle">🚀</div>
+						<h2 class="bottom-cta-title">
+							Siap Atur Finansial Anda Lebih Santai & Rapi?
+						</h2>
+						<p class="bottom-cta-sub">
+							Bergabunglah sekarang. Nikmati kemudahan catat
+							pengeluaran lewat suara, scan struk belanja, dan
+							kelola multi-dompet tanpa ribet.
+						</p>
+						<button
+							type="button"
+							class="btn-cta-bottom"
+							onclick={() => {
+								authMode = "register";
+								document
+									.getElementById("auth-box-section")
+									?.scrollIntoView({ behavior: "smooth" });
+							}}
+						>
+							Daftar Akun CatatAi Gratis Sekarang ✨
+						</button>
+					</div>
+				</section>
 			</main>
 
 			<!-- LANDING FOOTER -->
 			<footer class="landing-page-footer">
 				<div class="footer-inner">
 					<div class="footer-left">
-						<span class="footer-logo">CatatAi</span>
-						<span class="footer-copy">© 2026 CatatAi. Pencatatan Keuangan & Scan Nota Berbasis AI.</span>
+						<div class="footer-brand-title">CatatAi</div>
+						<p class="footer-copy">
+							© 2026 CatatAi. Platform Pembukuan Finansial Cerdas
+							dengan Suara, Scan Struk Vision, & Multi-Dompet.
+						</p>
 					</div>
 					<div class="footer-right">
-						<span>Privasi Terisolasi</span>
+						<span>Privasi Terisolasi Bank-Grade</span>
 						<span class="dot-sep">•</span>
-						<span>Didukung Neon DB & DeepSeek AI</span>
+						<span
+							>Didukung Neon Serverless PostgreSQL & DeepSeek AI</span
+						>
 					</div>
 				</div>
 			</footer>
@@ -1475,16 +3213,42 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 				<!-- BRAND TITLE & STATUS -->
 				<div class="brand-unit">
 					<div class="brand-gem-modern">
-						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+						<svg
+							width="18"
+							height="18"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2.3"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<path
+								d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"
+							/>
 						</svg>
 					</div>
 					<div class="brand-meta">
 						<span class="brand-name-bold">CatatAi</span>
 						<span class="brand-kpi-sub">
-							Hari ini: <strong class="{totalHariIni.pengeluaran > 0 ? 'text-expense' : 'text-neutral'}">{formatRupiah(totalHariIni.pengeluaran)}</strong>
+							Hari ini: <strong
+								class={totalHariIni.pengeluaran > 0
+									? "text-expense"
+									: "text-neutral"}
+								>{formatRupiah(
+									totalHariIni.pengeluaran,
+								)}</strong
+							>
 							<span class="brand-kpi-divider">•</span>
-							Minggu ini: <strong class="{totalMingguIni.pengeluaran > 0 ? 'text-expense' : 'text-neutral'}">{formatRupiah(totalMingguIni.pengeluaran)}</strong>
+							Minggu ini:
+							<strong
+								class={totalMingguIni.pengeluaran > 0
+									? "text-expense"
+									: "text-neutral"}
+								>{formatRupiah(
+									totalMingguIni.pengeluaran,
+								)}</strong
+							>
 						</span>
 					</div>
 				</div>
@@ -1492,25 +3256,60 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 				<!-- CENTER NAVIGATION: CHAT vs REPORT -->
 				<div class="header-tier-tabs">
 					<div class="modern-segment-bar">
-						<button 
-							class="tab-btn {activeView === 'chat' ? 'active' : ''}" 
-							onclick={() => { activeView = 'chat'; if (reportSubTab !== 'bulanan') { reportSubTab = 'bulanan'; loadData(); } scrollToBottom(); }}
+						<button
+							class="tab-btn {activeView === 'chat'
+								? 'active'
+								: ''}"
+							onclick={() => {
+								activeView = "chat";
+								if (reportSubTab !== "bulanan") {
+									reportSubTab = "bulanan";
+									loadData();
+								}
+								scrollToBottom();
+							}}
 						>
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path
+									d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
+								/>
 							</svg>
 							<span>Chat Asisten</span>
 						</button>
-						<button 
-							class="tab-btn {activeView === 'report' ? 'active' : ''}" 
-							onclick={() => activeView = 'report'}
+						<button
+							class="tab-btn {activeView === 'report'
+								? 'active'
+								: ''}"
+							onclick={() => (activeView = "report")}
 						>
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path d="M3 3v18h18" /><path
+									d="M18 17V9"
+								/><path d="M13 17V5" /><path d="M8 17v-3" />
 							</svg>
 							<span>Report & Rekap</span>
 							{#if transaksiList.length > 0}
-								<span class="report-badge-count">{transaksiList.length}</span>
+								<span class="report-badge-count"
+									>{transaksiList.length}</span
+								>
 							{/if}
 						</button>
 					</div>
@@ -1518,60 +3317,75 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 				<!-- RIGHT ACTION CLUSTER -->
 				<div class="header-actions-cluster">
-					<!-- TIER STATUS BADGE (PRO UNLIMITED vs FREE 5/DAY) -->
-					{#if currentUser.tier === 'pro'}
-						<button 
-							class="btn-tier-status tier-pro" 
-							onclick={() => showUpgradeModal = true} 
-							title="Paket CatatAi PRO Aktif (Chat Tanpa Batas)"
-						>
-							<span class="pro-star">⭐</span>
-							<span class="pro-tag">PRO</span>
-						</button>
-					{:else}
-						<button 
-							class="btn-tier-status tier-free" 
-							onclick={() => showUpgradeModal = true} 
-							title="Batas 5 pesan per hari. Klik untuk Upgrade ke PRO!"
-						>
-							<span class="free-badge-lbl">Free</span>
-							<span class="free-badge-count">{currentUser.sisa_kuota ?? 5}/5</span>
-							<span class="free-upgrade-arrow">PRO ⭐</span>
-						</button>
-					{/if}
-
 					<!-- Tombol Panel Admin Khusus Admin Miftah -->
-					{#if currentUser?.role === 'admin' || currentUser?.email === 'miftahdev7@gmail.com'}
-						<a 
-							href="/admin" 
-							class="btn-admin-header-link" 
+					{#if currentUser?.role === "admin" || currentUser?.email === "miftahdev7@gmail.com"}
+						<a
+							href="/admin"
+							class="btn-admin-header-link"
 							title="Panel Admin - Manajemen Pengguna"
 						>
 							<span class="admin-crown-icon">👑</span>
 							<span class="admin-header-text">Admin</span>
 						</a>
 					{/if}
+
 					<!-- Button Quick Add Manual -->
-					<button 
-						class="btn-action-add" 
-						onclick={() => { resetForm(); showModalTambah = true; }} 
+					<button
+						class="btn-action-add"
+						onclick={() => {
+							resetForm();
+							showModalTambah = true;
+						}}
 						title="Catat Manual"
 					>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-							<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+						<svg
+							width="14"
+							height="14"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2.6"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<line x1="12" y1="5" x2="12" y2="19" /><line
+								x1="5"
+								y1="12"
+								x2="19"
+								y2="12"
+							/>
 						</svg>
 						<span>Catat</span>
 					</button>
 
-					<!-- User Profile Avatar Button -->
-					<button 
-						class="btn-avatar-profile" 
-						onclick={() => showProfileModal = true}
-						title="Profil & Pengaturan Akun"
+					<!-- User Profile Avatar Button with PRO badge -->
+					<button
+						class="btn-avatar-profile"
+						onclick={() => (showProfileModal = true)}
+						title="Profil & Pengaturan Akun {currentUser.tier ===
+						'pro'
+							? '(CatatAi PRO Aktif ⭐)'
+							: ''}"
 						aria-label="Profil Akun"
 					>
-						<span class="avatar-letter">{currentUser.nama.charAt(0).toUpperCase()}</span>
-						<span class="desktop-user-name">{currentUser.nama}</span>
+						<span class="avatar-letter-wrapper">
+							<span class="avatar-letter"
+								>{currentUser.nama
+									.charAt(0)
+									.toUpperCase()}</span
+							>
+							{#if currentUser.tier === "pro"}
+								<span
+									class="avatar-pro-badge"
+									title="CatatAi PRO">⭐</span
+								>
+							{/if}
+						</span>
+						<span class="desktop-user-name">{currentUser.nama}</span
+						>
+						{#if currentUser.tier === "pro"}
+							<span class="desktop-pro-pill">PRO</span>
+						{/if}
 					</button>
 				</div>
 			</div>
@@ -1581,22 +3395,83 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		{#if errorMsg}
 			<div class="app-alert alert-danger">
 				<div class="alert-content">
-					<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+					<svg
+						width="15"
+						height="15"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						><circle cx="12" cy="12" r="10" /><line
+							x1="12"
+							y1="8"
+							x2="12"
+							y2="12"
+						/><line x1="12" y1="16" x2="12.01" y2="16" /></svg
+					>
 					<span>{errorMsg}</span>
 				</div>
-				<button class="alert-close" aria-label="Tutup notifikasi" onclick={() => errorMsg = ''}>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+				<button
+					class="alert-close"
+					aria-label="Tutup notifikasi"
+					onclick={() => (errorMsg = "")}
+				>
+					<svg
+						width="14"
+						height="14"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						><line x1="18" y1="6" x2="6" y2="18" /><line
+							x1="6"
+							y1="6"
+							x2="18"
+							y2="18"
+						/></svg
+					>
 				</button>
 			</div>
 		{/if}
 		{#if successMsg}
 			<div class="app-alert alert-success">
 				<div class="alert-content">
-					<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+					<svg
+						width="15"
+						height="15"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						><path
+							d="M22 11.08V12a10 10 0 1 1-5.93-9.14"
+						/><polyline points="22 4 12 14.01 9 11.01" /></svg
+					>
 					<span>{successMsg}</span>
 				</div>
-				<button class="alert-close" aria-label="Tutup notifikasi" onclick={() => successMsg = ''}>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+				<button
+					class="alert-close"
+					aria-label="Tutup notifikasi"
+					onclick={() => (successMsg = "")}
+				>
+					<svg
+						width="14"
+						height="14"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						><line x1="18" y1="6" x2="6" y2="18" /><line
+							x1="6"
+							y1="6"
+							x2="18"
+							y2="18"
+						/></svg
+					>
 				</button>
 			</div>
 		{/if}
@@ -1606,434 +3481,1389 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			<!-- ==============================================
 			     VIEW 1: MODE CHAT MOBILE-FIRST (CLEAN NO DOUBLE HEADER)
 			     ============================================== -->
-			{#if activeView === 'chat'}
+			{#if activeView === "chat"}
 				<div class="chat-layout-wrapper">
 					<div class="chat-mobile-container">
-					<!-- Messages Stream (WITH SUBTLE DOODLE BACKGROUND) -->
-					
-					<div class="chat-stream-viewport" bind:this={chatMessagesContainer}>
-						
-						<!-- DATE DIVIDER PILL (CHAT STYLE) -->
-						<div class="chat-date-divider-wrap">
-							<span class="chat-date-pill">{formatTglHari(todayTanggal)}</span>
-						</div>
-
-						{#each chatMessages as msg}
-							<div class="msg-bubble-row {msg.role === 'user' ? 'user-side' : 'bot-side'}">
-								{#if msg.role === 'assistant'}
-									<div class="bot-tiny-avatar">
-										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-											<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-										</svg>
-									</div>
-								{/if}
-
-								<div class="msg-card">
-									{#if msg.image}
-										<div class="msg-media-wrap">
-											<img src={msg.image} alt="Nota Transaksi" class="msg-media-img" />
-										</div>
-									{/if}
-
-									{#if msg.isTxCard && msg.txData}
-										<!-- CHAT HISTORY CARD TRANSAKSI HARI INI -->
-										<div class="chat-tx-bubble-card">
-											<div class="ctx-card-top">
-												<div class="ctx-card-brand">
-													<div class="ctx-card-avatar {msg.txData.tipe === 'pemasukan' ? 'avatar-in' : 'avatar-out'}">
-														{#if msg.txData.tipe === 'pemasukan'}
-															<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
-														{:else}
-															<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg>
-														{/if}
-													</div>
-													<div class="ctx-card-info">
-														<span class="ctx-card-title">{msg.txData.toko || (msg.txData.tipe === 'pemasukan' ? 'Pemasukan' : 'Transaksi')}</span>
-														<span class="ctx-card-meta">{msg.txData.waktu?.slice(0, 5) || '-'} • {msg.txData.kategori} • {msg.txData.metode_bayar}</span>
-													</div>
-												</div>
-												<div class="ctx-card-amount {msg.txData.tipe === 'pemasukan' ? 'color-income' : 'color-expense'}">
-													{msg.txData.tipe === 'pemasukan' ? '+' : '-'}{formatRupiah(msg.txData.total)}
-												</div>
-											</div>
-
-											{#if msg.txData.catatan}
-												<div class="ctx-card-note">"{msg.txData.catatan}"</div>
-											{/if}
-
-											{#if msg.txData.items && msg.txData.items.length > 0}
-												<div class="ctx-card-mini-items">
-													{#each msg.txData.items as itm}
-														<div class="ctx-mini-item-row">
-															<span>{itm.qty}x {itm.nama_barang}</span>
-															<span>{formatRupiah(itm.subtotal || (itm.qty * itm.harga_satuan))}</span>
-														</div>
-													{/each}
-												</div>
-											{/if}
-
-											<div class="ctx-card-footer">
-												<span class="ctx-saved-label">
-													<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><polyline points="20 6 9 17 4 12"/></svg>
-													<span>Tersimpan hari ini</span>
-												</span>
-												<button 
-													type="button" 
-													class="btn-ctx-detail" 
-													onclick={() => openDetail(msg.txData.id)}
-													title="Lihat rincian nota & foto struk"
-												>
-													Lihat Detail Nota →
-												</button>
-											</div>
-										</div>
-									{:else}
-										<div class="msg-text-content">{msg.content}</div>
-									{/if}
-
-									<!-- DRAFT TRANSAKSI CARD INTERAKTIF -->
-									{#if msg.draft}
-										<div class="tx-draft-box">
-											<div class="draft-topline">
-												<div class="draft-badge-title-row">
-													{#if msg.draft.tipe === 'pemasukan'}
-														<svg class="draft-icon-income" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-															<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
-														</svg>
-														<span>Pemasukan Terdeteksi</span>
-													{:else}
-														<svg class="draft-icon-expense" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-															<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
-														</svg>
-														<span>Pengeluaran Terdeteksi</span>
-													{/if}
-												</div>
-												<span class="pill-type {msg.draft.tipe === 'pemasukan' ? 'pill-income' : 'pill-expense'}">
-													{msg.draft.tipe.toUpperCase()}
-												</span>
-											</div>
-
-											<div class="draft-grid-info">
-												<div class="draft-col">
-													<span class="col-k">{msg.draft.tipe === 'pemasukan' ? 'Sumber / Dari:' : 'Toko / Merchant:'}</span>
-													<span class="col-v-bold">{msg.draft.toko || '-'}</span>
-												</div>
-												<div class="draft-col">
-													<span class="col-k">Kategori:</span>
-													<span class="col-tag">{msg.draft.kategori}</span>
-												</div>
-												<div class="draft-col">
-													<span class="col-k">Tanggal:</span>
-													<span class="col-v">{formatTgl(msg.draft.tanggal)}</span>
-												</div>
-												<div class="draft-col">
-													<span class="col-k">Metode:</span>
-													<span class="col-v method-tag">
-														<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-														<span>{msg.draft.metode_bayar}</span>
-													</span>
-												</div>
-											</div>
-
-											{#if msg.draft.items && msg.draft.items.length > 0}
-												<div class="draft-itemized-list">
-													{#each msg.draft.items as item}
-														<div class="draft-item-entry">
-															<span>{item.qty}x {item.nama_barang}</span>
-															<span class="entry-sub">{formatRupiah(item.subtotal || (item.qty * item.harga_satuan))}</span>
-														</div>
-													{/each}
-												</div>
-											{/if}
-
-											<div class="draft-total-banner">
-												<span class="tot-caption">Total {msg.draft.tipe === 'pemasukan' ? 'Masuk' : 'Transaksi'}:</span>
-												<span class="tot-val {msg.draft.tipe === 'pemasukan' ? 'color-income' : 'color-expense'}">
-													{msg.draft.tipe === 'pemasukan' ? '+' : '-'} {formatRupiah(msg.draft.total)}
-												</span>
-											</div>
-
-											<!-- BAGIAN TOMBOL AKSI: HILANG BEGITU SUDAH DIKLIK / DIKONFIRMASI -->
-											{#if msg.draft.status === 'saved'}
-												<div class="draft-status-pill pill-saved">
-													<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-													<span>Transaksi Berhasil Disimpan</span>
-												</div>
-											{:else if msg.draft.status === 'cancelled'}
-												<div class="draft-status-pill pill-cancelled">
-													<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-													<span>Draft Transaksi Dibatalkan</span>
-												</div>
-											{:else}
-												<div class="draft-action-block">
-													<span class="action-question">Apakah data di atas sudah betul?</span>
-													
-													<div class="buttons-grid">
-														<!-- Tombol Utama: Simpan -->
-														<button 
-															class="btn-primary-confirm" 
-															onclick={() => confirmDraftDirectly(msg)}
-														>
-															<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-															<span>Ya, Simpan Sekarang!</span>
-														</button>
-														
-														<!-- Baris Tombol Tambahan: Koreksi & Batal -->
-														<div class="buttons-sub-row">
-															<button 
-																class="btn-sub-edit" 
-																onclick={() => editDraftManually(msg.draft)}
-															>
-																<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-																<span>Koreksi</span>
-															</button>
-															<button 
-																class="btn-sub-cancel" 
-																onclick={() => cancelDraftDirectly(msg)}
-															>
-																<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-																<span>Batal</span>
-															</button>
-														</div>
-													</div>
-												</div>
-											{/if}
-										</div>
-									{/if}
-
-									{#if msg.savedId}
-										<div class="msg-saved-banner">
-											<div class="saved-banner-left">
-												<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-												<span>Tersimpan ke database!</span>
-											</div>
-											<button class="btn-detail-link" onclick={() => openDetail(msg.savedId)}>Lihat Detail</button>
-										</div>
-									{/if}
-
-									<div class="msg-footer-meta">
-										<span class="msg-time">{msg.time}</span>
-										{#if msg.role === 'user'}
-											<svg class="msg-check-svg" width="14" height="10" viewBox="0 0 16 11" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-												<path d="M1 6l3.5 3.5L11 2"/>
-												<path d="M5 6l3.5 3.5L15 2"/>
-											</svg>
-										{/if}
-									</div>
+						<!-- Filter Indikator Aktif (Hanya muncul jika user sedang memfilter dompet tertentu) -->
+						{#if selectedDompetFilter}
+							{@const curDompet = dompetList.find(
+								(d) => d.id === selectedDompetFilter,
+							)}
+							<div class="chat-active-filter-strip">
+								<div class="caf-info">
+									<span class="caf-icon"
+										>{getDompetIcon(curDompet?.tipe)}</span
+									>
+									<span
+										>Filter: <strong
+											>{curDompet?.nama ||
+												"Dompet"}</strong
+										></span
+									>
+									<span class="caf-bal"
+										>({formatRupiah(
+											curDompet?.saldo_sekarang,
+										)})</span
+									>
 								</div>
-							</div>
-						{/each}
-
-						{#if chatLoading}
-							<div class="msg-bubble-row bot-side">
-								<div class="bot-tiny-avatar">
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-										<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-									</svg>
-								</div>
-								<div class="msg-card msg-loading-card">
-									<span class="bounce-dot"></span>
-									<span class="bounce-dot"></span>
-									<span class="bounce-dot"></span>
-									<span class="loading-label">Menganalisis transaksi...</span>
-								</div>
-							</div>
-						{/if}
-					</div>
-
-					<!-- Attached Image Bar -->
-					{#if chatAttachedImage}
-						<div class="attached-media-bar">
-							<div class="thumb-container">
-								<img src={chatAttachedImage} alt="Lampiran" class="thumb-img" />
-								<button class="btn-remove-thumb" aria-label="Hapus lampiran" onclick={removeChatImage} title="Hapus foto">
-									<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+								<button
+									type="button"
+									class="btn-caf-clear"
+									onclick={() => selectDompetFilter(null)}
+								>
+									✕ Semua
 								</button>
 							</div>
-							<span class="thumb-caption">Foto nota siap dianalisis</span>
-						</div>
-					{/if}
-
-					<!-- STICKY INPUT BAR (BOTTOM) -->
-					<div class="chat-bottom-dock">
-						<!-- QUOTA STRIP & PRO NOTICE -->
-						{#if currentUser?.tier !== 'pro'}
-							{#if (currentUser?.sisa_kuota ?? 5) <= 0}
-								<div class="quota-exhausted-banner">
-									<div class="exhausted-text">
-										<strong>Batas 5 pesan gratis hari ini tercapai</strong>
-										<span>Upgrade ke CatatAi PRO untuk melanjutkan chat tanpa batas!</span>
-									</div>
-									<button type="button" class="btn-exhausted-upgrade" onclick={() => showUpgradeModal = true}>
-										Aktifkan PRO ⭐
-									</button>
-								</div>
-							{:else}
-								<div class="chat-quota-strip">
-									<div class="quota-info-pill">
-										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-										<span>Sisa Kuota: <strong>{currentUser?.sisa_kuota ?? 5} / 5 pesan gratis hari ini</strong></span>
-									</div>
-									<button type="button" class="btn-quota-pro-link" onclick={() => showUpgradeModal = true}>
-										Buka Unlimited (PRO) ⭐
-									</button>
-								</div>
-							{/if}
 						{/if}
 
-						<div class="chat-quick-shortcuts">
-							<button type="button" class="quick-chip-btn" onclick={() => sendChatMessage('ringkasan minggu ini')}>
-								<span>📊 Ringkasan Minggu Ini</span>
-							</button>
-							<button type="button" class="quick-chip-btn" onclick={() => sendChatMessage('ringkasan hari ini')}>
-								<span>📅 Hari Ini</span>
-							</button>
-							<button type="button" class="quick-chip-btn" onclick={() => { activeView = 'report'; switchReportSubTab('mingguan'); }}>
-								<span>📈 Grafik 7 Hari</span>
-							</button>
+						<!-- Messages Stream (WITH SUBTLE DOODLE BACKGROUND) -->
+						<div
+							class="chat-stream-viewport"
+							bind:this={chatMessagesContainer}
+						>
+							<!-- DATE DIVIDER PILL (CHAT STYLE) -->
+							<div class="chat-date-divider-wrap">
+								<span class="chat-date-pill"
+									>{formatTglHari(todayTanggal)}</span
+								>
+							</div>
+
+							{#each chatMessages as msg}
+								<div
+									class="msg-bubble-row {msg.role === 'user'
+										? 'user-side'
+										: 'bot-side'}"
+								>
+									{#if msg.role === "assistant"}
+										<div class="bot-tiny-avatar">
+											<svg
+												width="14"
+												height="14"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+											>
+												<path
+													d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"
+												/>
+											</svg>
+										</div>
+									{/if}
+
+									<div class="msg-card">
+										{#if msg.image}
+											<div class="msg-media-wrap">
+												<img
+													src={msg.image}
+													alt="Nota Transaksi"
+													class="msg-media-img"
+												/>
+											</div>
+										{/if}
+
+										{#if msg.isTxCard && msg.txData}
+											<!-- CHAT HISTORY CARD TRANSAKSI HARI INI -->
+											<div class="chat-tx-bubble-card">
+												<div class="ctx-card-top">
+													<div class="ctx-card-brand">
+														<div
+															class="ctx-card-avatar {msg
+																.txData.tipe ===
+															'pemasukan'
+																? 'avatar-in'
+																: 'avatar-out'}"
+														>
+															{#if msg.txData.tipe === "pemasukan"}
+																<svg
+																	width="15"
+																	height="15"
+																	viewBox="0 0 24 24"
+																	fill="none"
+																	stroke="currentColor"
+																	stroke-width="2.5"
+																	><path
+																		d="M12 5v14M19 12l-7 7-7-7"
+																	/></svg
+																>
+															{:else}
+																<svg
+																	width="15"
+																	height="15"
+																	viewBox="0 0 24 24"
+																	fill="none"
+																	stroke="currentColor"
+																	stroke-width="2.5"
+																	><path
+																		d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"
+																	/><line
+																		x1="3"
+																		y1="6"
+																		x2="21"
+																		y2="6"
+																	/></svg
+																>
+															{/if}
+														</div>
+														<div
+															class="ctx-card-info"
+														>
+															<span
+																class="ctx-card-title"
+																>{msg.txData
+																	.toko ||
+																	(msg.txData
+																		.tipe ===
+																	"pemasukan"
+																		? "Pemasukan"
+																		: "Transaksi")}</span
+															>
+															<span
+																class="ctx-card-meta"
+																>{msg.txData.waktu?.slice(
+																	0,
+																	5,
+																) || "-"} • {msg
+																	.txData
+																	.kategori} •
+																{msg.txData
+																	.metode_bayar}</span
+															>
+														</div>
+													</div>
+													<div
+														class="ctx-card-amount {msg
+															.txData.tipe ===
+														'pemasukan'
+															? 'color-income'
+															: 'color-expense'}"
+													>
+														{msg.txData.tipe ===
+														"pemasukan"
+															? "+"
+															: "-"}{formatRupiah(
+															msg.txData.total,
+														)}
+													</div>
+												</div>
+
+												{#if msg.txData.catatan}
+													<div class="ctx-card-note">
+														"{msg.txData.catatan}"
+													</div>
+												{/if}
+
+												{#if msg.txData.items && msg.txData.items.length > 0}
+													<div
+														class="ctx-card-mini-items"
+													>
+														{#each msg.txData.items as itm}
+															<div
+																class="ctx-mini-item-row"
+															>
+																<span
+																	>{itm.qty}x {itm.nama_barang}</span
+																>
+																<span
+																	>{formatRupiah(
+																		itm.subtotal ||
+																			itm.qty *
+																				itm.harga_satuan,
+																	)}</span
+																>
+															</div>
+														{/each}
+													</div>
+												{/if}
+
+												<div class="ctx-card-footer">
+													<span
+														class="ctx-saved-label"
+													>
+														<svg
+															width="12"
+															height="12"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="2.6"
+															><polyline
+																points="20 6 9 17 4 12"
+															/></svg
+														>
+														<span
+															>Tersimpan hari ini</span
+														>
+													</span>
+													<button
+														type="button"
+														class="btn-ctx-detail"
+														onclick={() =>
+															openDetail(
+																msg.txData.id,
+															)}
+														title="Lihat rincian nota & foto struk"
+													>
+														Lihat Detail Nota →
+													</button>
+												</div>
+											</div>
+										{:else}
+											<div class="msg-text-content">
+												{#if msg.is_voice}
+													<div
+														class="voice-note-tag"
+														title="Pesan Suara"
+													>
+														<svg
+															width="12"
+															height="12"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="2.5"
+															><path
+																d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+															/><path
+																d="M19 10v2a7 7 0 0 1-14 0v-2"
+															/><line
+																x1="12"
+																y1="19"
+																x2="12"
+																y2="23"
+															/><line
+																x1="8"
+																y1="23"
+																x2="16"
+																y2="23"
+															/></svg
+														>
+														<span>Pesan Suara</span>
+													</div>
+												{/if}
+												{msg.content}
+											</div>
+										{/if}
+
+										<!-- DRAFT TRANSAKSI CARD INTERAKTIF -->
+										{#if msg.draft}
+											<div class="tx-draft-box">
+												<div class="draft-topline">
+													<div
+														class="draft-badge-title-row"
+													>
+														{#if msg.draft.tipe === "pemasukan"}
+															<svg
+																class="draft-icon-income"
+																width="16"
+																height="16"
+																viewBox="0 0 24 24"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="2.2"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															>
+																<line
+																	x1="12"
+																	y1="5"
+																	x2="12"
+																	y2="19"
+																/><polyline
+																	points="19 12 12 19 5 12"
+																/>
+															</svg>
+															<span
+																>Pemasukan
+																Terdeteksi</span
+															>
+														{:else}
+															<svg
+																class="draft-icon-expense"
+																width="16"
+																height="16"
+																viewBox="0 0 24 24"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="2.2"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															>
+																<line
+																	x1="12"
+																	y1="19"
+																	x2="12"
+																	y2="5"
+																/><polyline
+																	points="5 12 12 5 19 12"
+																/>
+															</svg>
+															<span
+																>Pengeluaran
+																Terdeteksi</span
+															>
+														{/if}
+													</div>
+													<span
+														class="pill-type {msg
+															.draft.tipe ===
+														'pemasukan'
+															? 'pill-income'
+															: 'pill-expense'}"
+													>
+														{msg.draft.tipe.toUpperCase()}
+													</span>
+												</div>
+
+												<div class="draft-grid-info">
+													<div class="draft-col">
+														<span class="col-k"
+															>{msg.draft.tipe ===
+															"pemasukan"
+																? "Sumber / Dari:"
+																: "Toko / Merchant:"}</span
+														>
+														<span class="col-v-bold"
+															>{msg.draft.toko ||
+																"-"}</span
+														>
+													</div>
+													<div class="draft-col">
+														<span class="col-k"
+															>Kategori:</span
+														>
+														<span class="col-tag"
+															>{msg.draft
+																.kategori}</span
+														>
+													</div>
+													<div class="draft-col">
+														<span class="col-k"
+															>Tanggal:</span
+														>
+														<span class="col-v"
+															>{formatTgl(
+																msg.draft
+																	.tanggal,
+															)}</span
+														>
+													</div>
+													<div class="draft-col">
+														<span class="col-k"
+															>Metode:</span
+														>
+														<span
+															class="col-v method-tag"
+														>
+															<svg
+																width="12"
+																height="12"
+																viewBox="0 0 24 24"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="2"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+																><rect
+																	x="1"
+																	y="4"
+																	width="22"
+																	height="16"
+																	rx="2"
+																	ry="2"
+																/><line
+																	x1="1"
+																	y1="10"
+																	x2="23"
+																	y2="10"
+																/></svg
+															>
+															<span
+																>{msg.draft
+																	.metode_bayar}</span
+															>
+														</span>
+													</div>
+												</div>
+
+												{#if msg.draft.items && msg.draft.items.length > 0}
+													<div
+														class="draft-itemized-list"
+													>
+														{#each msg.draft.items as item}
+															<div
+																class="draft-item-entry"
+															>
+																<span
+																	>{item.qty}x {item.nama_barang}</span
+																>
+																<span
+																	class="entry-sub"
+																	>{formatRupiah(
+																		item.subtotal ||
+																			item.qty *
+																				item.harga_satuan,
+																	)}</span
+																>
+															</div>
+														{/each}
+													</div>
+												{/if}
+
+												<div class="draft-total-banner">
+													<span class="tot-caption"
+														>Total {msg.draft
+															.tipe ===
+														"pemasukan"
+															? "Masuk"
+															: "Transaksi"}:</span
+													>
+													<span
+														class="tot-val {msg
+															.draft.tipe ===
+														'pemasukan'
+															? 'color-income'
+															: 'color-expense'}"
+													>
+														{msg.draft.tipe ===
+														"pemasukan"
+															? "+"
+															: "-"}
+														{formatRupiah(
+															msg.draft.total,
+														)}
+													</span>
+												</div>
+
+												<!-- BAGIAN TOMBOL AKSI: HILANG BEGITU SUDAH DIKLIK / DIKONFIRMASI -->
+												{#if msg.draft.status === "saved"}
+													<div
+														class="draft-status-pill pill-saved"
+													>
+														<svg
+															width="15"
+															height="15"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="2.5"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+															><path
+																d="M22 11.08V12a10 10 0 1 1-5.93-9.14"
+															/><polyline
+																points="22 4 12 14.01 9 11.01"
+															/></svg
+														>
+														<span
+															>Transaksi Berhasil
+															Disimpan</span
+														>
+													</div>
+												{:else if msg.draft.status === "cancelled"}
+													<div
+														class="draft-status-pill pill-cancelled"
+													>
+														<svg
+															width="15"
+															height="15"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="2.5"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+															><circle
+																cx="12"
+																cy="12"
+																r="10"
+															/><line
+																x1="15"
+																y1="9"
+																x2="9"
+																y2="15"
+															/><line
+																x1="9"
+																y1="9"
+																x2="15"
+																y2="15"
+															/></svg
+														>
+														<span
+															>Draft Transaksi
+															Dibatalkan</span
+														>
+													</div>
+												{:else}
+													<div
+														class="draft-action-block"
+													>
+														<span
+															class="action-question"
+															>Apakah data di atas
+															sudah betul?</span
+														>
+
+														<div
+															class="buttons-grid"
+														>
+															<!-- Tombol Utama: Simpan -->
+															<button
+																class="btn-primary-confirm"
+																onclick={() =>
+																	confirmDraftDirectly(
+																		msg,
+																	)}
+															>
+																<svg
+																	width="16"
+																	height="16"
+																	viewBox="0 0 24 24"
+																	fill="none"
+																	stroke="currentColor"
+																	stroke-width="2.8"
+																	stroke-linecap="round"
+																	stroke-linejoin="round"
+																	><polyline
+																		points="20 6 9 17 4 12"
+																	/></svg
+																>
+																<span
+																	>Ya, Simpan
+																	Sekarang!</span
+																>
+															</button>
+
+															<!-- Baris Tombol Tambahan: Koreksi & Batal -->
+															<div
+																class="buttons-sub-row"
+															>
+																<button
+																	class="btn-sub-edit"
+																	onclick={() =>
+																		editDraftManually(
+																			msg.draft,
+																		)}
+																>
+																	<svg
+																		width="13"
+																		height="13"
+																		viewBox="0 0 24 24"
+																		fill="none"
+																		stroke="currentColor"
+																		stroke-width="2"
+																		stroke-linecap="round"
+																		stroke-linejoin="round"
+																		><path
+																			d="M12 20h9"
+																		/><path
+																			d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
+																		/></svg
+																	>
+																	<span
+																		>Koreksi</span
+																	>
+																</button>
+																<button
+																	class="btn-sub-cancel"
+																	onclick={() =>
+																		cancelDraftDirectly(
+																			msg,
+																		)}
+																>
+																	<svg
+																		width="13"
+																		height="13"
+																		viewBox="0 0 24 24"
+																		fill="none"
+																		stroke="currentColor"
+																		stroke-width="2.2"
+																		stroke-linecap="round"
+																		stroke-linejoin="round"
+																		><line
+																			x1="18"
+																			y1="6"
+																			x2="6"
+																			y2="18"
+																		/><line
+																			x1="6"
+																			y1="6"
+																			x2="18"
+																			y2="18"
+																		/></svg
+																	>
+																	<span
+																		>Batal</span
+																	>
+																</button>
+															</div>
+														</div>
+													</div>
+												{/if}
+											</div>
+										{/if}
+
+										{#if msg.savedId}
+											<div class="msg-saved-banner">
+												<div class="saved-banner-left">
+													<svg
+														width="14"
+														height="14"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														><path
+															d="M22 11.08V12a10 10 0 1 1-5.93-9.14"
+														/><polyline
+															points="22 4 12 14.01 9 11.01"
+														/></svg
+													>
+													<span
+														>Tersimpan ke database!</span
+													>
+												</div>
+												<button
+													class="btn-detail-link"
+													onclick={() =>
+														openDetail(msg.savedId)}
+													>Lihat Detail</button
+												>
+											</div>
+										{/if}
+
+										<div class="msg-footer-meta">
+											<span class="msg-time"
+												>{msg.time}</span
+											>
+											{#if msg.role === "user"}
+												<svg
+													class="msg-check-svg"
+													width="14"
+													height="10"
+													viewBox="0 0 16 11"
+													fill="none"
+													stroke="#2563eb"
+													stroke-width="2"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												>
+													<path
+														d="M1 6l3.5 3.5L11 2"
+													/>
+													<path
+														d="M5 6l3.5 3.5L15 2"
+													/>
+												</svg>
+											{/if}
+										</div>
+									</div>
+								</div>
+							{/each}
+
+							{#if chatLoading}
+								<div class="msg-bubble-row bot-side">
+									<div class="bot-tiny-avatar">
+										<svg
+											width="14"
+											height="14"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<path
+												d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"
+											/>
+										</svg>
+									</div>
+									<div class="msg-card msg-loading-card">
+										<span class="bounce-dot"></span>
+										<span class="bounce-dot"></span>
+										<span class="bounce-dot"></span>
+										<span class="loading-label"
+											>Menganalisis transaksi...</span
+										>
+									</div>
+								</div>
+							{/if}
 						</div>
 
-						<form class="dock-form-row" onsubmit={(e) => { e.preventDefault(); sendChatMessage(); }}>
-							<label class="btn-dock-attach" title="Kirim Foto Nota">
-								<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-									<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-									<circle cx="12" cy="13" r="4"/>
-								</svg>
-								<input 
-									type="file" 
-									accept="image/jpeg,image/png,image/webp" 
-									class="input-file-native" 
-									onchange={handleChatImageUpload} 
-								/>
-							</label>
+						<!-- Attached Image Bar -->
+						{#if chatAttachedImage}
+							<div class="attached-media-bar">
+								<div class="thumb-container">
+									<img
+										src={chatAttachedImage}
+										alt="Lampiran"
+										class="thumb-img"
+									/>
+									<button
+										class="btn-remove-thumb"
+										aria-label="Hapus lampiran"
+										onclick={removeChatImage}
+										title="Hapus foto"
+									>
+										<svg
+											width="10"
+											height="10"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2.5"
+											><line
+												x1="18"
+												y1="6"
+												x2="6"
+												y2="18"
+											/><line
+												x1="6"
+												y1="6"
+												x2="18"
+												y2="18"
+											/></svg
+										>
+									</button>
+								</div>
+								<span class="thumb-caption"
+									>Foto nota siap dianalisis</span
+								>
+							</div>
+						{/if}
 
-							<input 
-								type="text" 
-								class="input-dock-text" 
-								placeholder={currentUser?.tier !== 'pro' && (currentUser?.sisa_kuota ?? 5) <= 0 
-									? "Batas 5 pesan gratis tercapai. Upgrade ke PRO untuk lanjut..." 
-									: "Ketik 'beli kopi 18k' atau 'gaji 10jt'..."} 
-								bind:value={chatInput} 
-								disabled={chatLoading || (currentUser?.tier !== 'pro' && (currentUser?.sisa_kuota ?? 5) <= 0)}
-							/>
+						<!-- STICKY INPUT BAR (BOTTOM) -->
+						<div class="chat-bottom-dock">
+							<!-- QUOTA STRIP & PRO NOTICE -->
+							{#if currentUser?.tier !== "pro"}
+								{#if (currentUser?.sisa_kuota ?? 5) <= 0}
+									<div class="quota-exhausted-banner">
+										<div class="exhausted-text">
+											<strong
+												>Batas 5 pesan gratis hari ini
+												tercapai</strong
+											>
+											<span
+												>Upgrade ke CatatAi PRO untuk
+												melanjutkan chat tanpa batas!</span
+											>
+										</div>
+										<button
+											type="button"
+											class="btn-exhausted-upgrade"
+											onclick={() =>
+												(showUpgradeModal = true)}
+										>
+											Aktifkan PRO ⭐
+										</button>
+									</div>
+								{:else}
+									<div class="chat-quota-strip">
+										<div class="quota-info-pill">
+											<svg
+												width="12"
+												height="12"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2.2"
+												><circle
+													cx="12"
+													cy="12"
+													r="10"
+												/><polyline
+													points="12 6 12 12 16 14"
+												/></svg
+											>
+											<span
+												>Sisa Kuota: <strong
+													>{currentUser?.sisa_kuota ??
+														5} / 5 pesan gratis hari
+													ini</strong
+												></span
+											>
+										</div>
+										<button
+											type="button"
+											class="btn-quota-pro-link"
+											onclick={() =>
+												(showUpgradeModal = true)}
+										>
+											Buka Unlimited (PRO) ⭐
+										</button>
+									</div>
+								{/if}
+							{/if}
 
-							<button 
-								type="submit" 
-								class="btn-dock-send" 
-								disabled={chatLoading || (!chatInput.trim() && !chatAttachedImage) || (currentUser?.tier !== 'pro' && (currentUser?.sisa_kuota ?? 5) <= 0)}
-								title="Kirim Pesan"
+							<div class="chat-quick-shortcuts">
+								<button
+									type="button"
+									class="quick-chip-btn"
+									onclick={() =>
+										sendChatMessage("ringkasan minggu ini")}
+								>
+									<span>📊 Ringkasan Minggu Ini</span>
+								</button>
+								<button
+									type="button"
+									class="quick-chip-btn"
+									onclick={() =>
+										sendChatMessage("ringkasan hari ini")}
+								>
+									<span>📅 Hari Ini</span>
+								</button>
+								<button
+									type="button"
+									class="quick-chip-btn"
+									onclick={() => {
+										activeView = "report";
+										switchReportSubTab("mingguan");
+									}}
+								>
+									<span>📈 Grafik 7 Hari</span>
+								</button>
+							</div>
+
+							<form
+								class="dock-form-row {isRecordingVoice
+									? 'is-recording-mode'
+									: ''}"
+								onsubmit={(e) => {
+									e.preventDefault();
+									if (isRecordingVoice) {
+										stopVoiceRecording(true);
+									} else {
+										sendChatMessage();
+									}
+								}}
 							>
-								<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-									<line x1="22" y1="2" x2="11" y2="13"/>
-									<polygon points="22 2 15 22 11 13 2 9 22 2"/>
-								</svg>
-							</button>
-						</form>
+								{#if isRecordingVoice}
+									<!-- RECORDING ACTIVE STATE -->
+									<div class="voice-recording-pill">
+										<div class="vrp-pulse-dot"></div>
+										<span class="vrp-timer"
+											>{formatDuration(
+												voiceRecordSeconds,
+											)}</span
+										>
+										<div class="vrp-waves">
+											<span></span><span></span><span
+											></span><span></span>
+										</div>
+										<span class="vrp-status-text"
+											>{chatInput.trim()
+												? chatInput
+												: "Mendengarkan suara Anda..."}</span
+										>
+									</div>
+
+									<button
+										type="button"
+										class="btn-dock-cancel-voice"
+										onclick={cancelVoiceRecording}
+										title="Batalkan Rekaman"
+									>
+										<svg
+											width="16"
+											height="16"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2.4"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<line
+												x1="18"
+												y1="6"
+												x2="6"
+												y2="18"
+											/><line
+												x1="6"
+												y1="6"
+												x2="18"
+												y2="18"
+											/>
+										</svg>
+									</button>
+
+									<button
+										type="button"
+										class="btn-dock-send btn-dock-send-voice"
+										onclick={() => stopVoiceRecording(true)}
+										title="Selesai & Analisis AI"
+									>
+										<svg
+											width="17"
+											height="17"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2.2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<line
+												x1="22"
+												y1="2"
+												x2="11"
+												y2="13"
+											/>
+											<polygon
+												points="22 2 15 22 11 13 2 9 22 2"
+											/>
+										</svg>
+									</button>
+								{:else}
+									<label
+										class="btn-dock-attach"
+										title="Kirim Foto Nota"
+									>
+										<svg
+											width="19"
+											height="19"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<path
+												d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"
+											/>
+											<circle cx="12" cy="13" r="4" />
+										</svg>
+										<input
+											type="file"
+											accept="image/jpeg,image/png,image/webp"
+											class="input-file-native"
+											onchange={handleChatImageUpload}
+										/>
+									</label>
+
+									<input
+										type="text"
+										class="input-dock-text"
+										placeholder={currentUser?.tier !==
+											"pro" &&
+										(currentUser?.sisa_kuota ?? 5) <= 0
+											? "Batas 5 pesan gratis tercapai. Upgrade ke PRO untuk lanjut..."
+											: "Ketik atau tekan tombol mic untuk suara..."}
+										bind:value={chatInput}
+										disabled={chatLoading ||
+											(currentUser?.tier !== "pro" &&
+												(currentUser?.sisa_kuota ??
+													5) <= 0)}
+									/>
+
+									{#if chatInput.trim() || chatAttachedImage}
+										<button
+											type="submit"
+											class="btn-dock-send"
+											disabled={chatLoading}
+											title="Kirim Pesan"
+										>
+											<svg
+												width="17"
+												height="17"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2.2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+											>
+												<line
+													x1="22"
+													y1="2"
+													x2="11"
+													y2="13"
+												/>
+												<polygon
+													points="22 2 15 22 11 13 2 9 22 2"
+												/>
+											</svg>
+										</button>
+									{:else}
+										<button
+											type="button"
+											class="btn-dock-mic"
+											onclick={startVoiceRecording}
+											disabled={chatLoading ||
+												(currentUser?.tier !== "pro" &&
+													(currentUser?.sisa_kuota ??
+														5) <= 0)}
+											title="Rekam Suara (Voice Note untuk Analisis AI)"
+										>
+											<svg
+												width="18"
+												height="18"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2.2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+											>
+												<path
+													d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+												/>
+												<path
+													d="M19 10v2a7 7 0 0 1-14 0v-2"
+												/>
+												<line
+													x1="12"
+													y1="19"
+													x2="12"
+													y2="23"
+												/>
+												<line
+													x1="8"
+													y1="23"
+													x2="16"
+													y2="23"
+												/>
+											</svg>
+										</button>
+									{/if}
+								{/if}
+							</form>
+						</div>
 					</div>
-				</div>
 
 					<!-- DESKTOP COMPANION SIDEBAR (LIVE FINANCE PULSE) -->
 					<aside class="chat-desktop-companion">
+						<!-- Card 0: Dompet & Rekening -->
+						<div class="companion-card companion-dompet-card">
+							<div class="companion-card-header">
+								<div class="c-head-title-row">
+									<svg
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<rect
+											x="1"
+											y="4"
+											width="22"
+											height="16"
+											rx="2"
+											ry="2"
+										/><line
+											x1="1"
+											y1="10"
+											x2="23"
+											y2="10"
+										/>
+									</svg>
+									<span class="companion-card-title"
+										>Dompet & Rekening</span
+									>
+								</div>
+								<div class="companion-dompet-hdr-acts">
+									<button
+										type="button"
+										class="c-mini-act"
+										onclick={() => openTransferModal()}
+										title="Transfer Antar Dompet"
+										>⇄ Transfer</button
+									>
+								</div>
+							</div>
+
+							<div class="companion-total-balance-box">
+								<span class="ctb-lbl">Total Saldo Bersih</span>
+								<span class="ctb-val"
+									>{formatRupiah(totalSaldoDompet)}</span
+								>
+							</div>
+
+							<div class="companion-dompet-list">
+								{#each dompetList as d}
+									<div
+										class="companion-dompet-item {selectedDompetFilter ===
+										d.id
+											? 'active-filter'
+											: ''}"
+										onclick={() => selectDompetFilter(d.id)}
+										onkeydown={(e) => {
+											if (e.key === "Enter")
+												selectDompetFilter(d.id);
+										}}
+										role="button"
+										tabindex="0"
+										title="Klik untuk filter catatan dompet ini"
+									>
+										<div class="cdi-left">
+											<span class="cdi-icon"
+												>{getDompetIcon(d.tipe)}</span
+											>
+											<div class="cdi-meta">
+												<span class="cdi-name"
+													>{d.nama}</span
+												>
+												<span class="cdi-tipe"
+													>{d.tipe}</span
+												>
+											</div>
+										</div>
+										<div class="cdi-right">
+											<span class="cdi-bal"
+												>{formatRupiah(
+													d.saldo_sekarang,
+												)}</span
+											>
+											<button
+												type="button"
+												class="cdi-edit"
+												onclick={(e) => {
+													e.stopPropagation();
+													openEditDompet(d);
+												}}
+												title="Ubah Dompet"
+											>
+												✏️
+											</button>
+										</div>
+									</div>
+								{/each}
+							</div>
+						</div>
+
 						<!-- Card 1: Ringkasan Saldo (Minggu Ini & Bulan Ini) -->
 						<div class="companion-card">
 							<div class="companion-card-header">
 								<div class="c-head-title-row">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-										<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>
+									<svg
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path d="M3 3v18h18" /><path
+											d="M18 17V9"
+										/><path d="M13 17V5" /><path
+											d="M8 17v-3"
+										/>
 									</svg>
-									<span class="companion-card-title">{companionPeriodTab === 'minggu' ? 'Ringkasan Minggu Ini' : 'Ringkasan Bulan Ini'}</span>
+									<span class="companion-card-title"
+										>{companionPeriodTab === "minggu"
+											? "Ringkasan Minggu Ini"
+											: "Ringkasan Bulan Ini"}</span
+									>
 								</div>
 								<div class="companion-switch-pill">
-									<button 
+									<button
 										type="button"
-										class="c-switch-btn {companionPeriodTab === 'minggu' ? 'active' : ''}" 
-										onclick={() => companionPeriodTab = 'minggu'}
+										class="c-switch-btn {companionPeriodTab ===
+										'minggu'
+											? 'active'
+											: ''}"
+										onclick={() =>
+											(companionPeriodTab = "minggu")}
 									>
 										Minggu
 									</button>
-									<button 
+									<button
 										type="button"
-										class="c-switch-btn {companionPeriodTab === 'bulan' ? 'active' : ''}" 
-										onclick={() => companionPeriodTab = 'bulan'}
+										class="c-switch-btn {companionPeriodTab ===
+										'bulan'
+											? 'active'
+											: ''}"
+										onclick={() =>
+											(companionPeriodTab = "bulan")}
 									>
 										Bulan
 									</button>
 								</div>
 							</div>
 
-							{#if companionPeriodTab === 'minggu'}
+							{#if companionPeriodTab === "minggu"}
 								<div class="companion-period-info-row">
-									<span class="c-period-text">📅 {formatTgl(totalMingguIni.start_date)} — {formatTgl(totalMingguIni.end_date)}</span>
-									<span class="companion-count-pill">{totalMingguIni.total_transaksi} Transaksi</span>
+									<span class="c-period-text"
+										>📅 {formatTgl(
+											totalMingguIni.start_date,
+										)} — {formatTgl(
+											totalMingguIni.end_date,
+										)}</span
+									>
+									<span class="companion-count-pill"
+										>{totalMingguIni.total_transaksi} Transaksi</span
+									>
 								</div>
 
 								<div class="companion-stats-grid">
 									<div class="cstat-item">
-										<span class="cstat-label">Pengeluaran</span>
-										<span class="cstat-val color-expense">{formatRupiah(totalMingguIni.pengeluaran)}</span>
+										<span class="cstat-label"
+											>Pengeluaran</span
+										>
+										<span class="cstat-val color-expense"
+											>{formatRupiah(
+												totalMingguIni.pengeluaran,
+											)}</span
+										>
 									</div>
 									<div class="cstat-item">
-										<span class="cstat-label">Pemasukan</span>
-										<span class="cstat-val color-income">{formatRupiah(totalMingguIni.pemasukan)}</span>
+										<span class="cstat-label"
+											>Pemasukan</span
+										>
+										<span class="cstat-val color-income"
+											>{formatRupiah(
+												totalMingguIni.pemasukan,
+											)}</span
+										>
 									</div>
 								</div>
 
 								<div class="companion-net-row">
-									<span class="cstat-net-lbl">Saldo Bersih</span>
-									<span class="cstat-net-val {totalMingguIni.saldo_bersih >= 0 ? 'color-income' : 'color-expense'}">
-										{totalMingguIni.saldo_bersih >= 0 ? '+' : ''}{formatRupiah(totalMingguIni.saldo_bersih)}
+									<span class="cstat-net-lbl"
+										>Saldo Bersih</span
+									>
+									<span
+										class="cstat-net-val {totalMingguIni.saldo_bersih >=
+										0
+											? 'color-income'
+											: 'color-expense'}"
+									>
+										{totalMingguIni.saldo_bersih >= 0
+											? "+"
+											: ""}{formatRupiah(
+											totalMingguIni.saldo_bersih,
+										)}
 									</span>
 								</div>
 
 								<div class="companion-today-row">
 									<span>Pengeluaran Hari Ini</span>
-									<strong class="{totalHariIni.pengeluaran > 0 ? 'color-expense' : 'text-neutral'}">{formatRupiah(totalHariIni.pengeluaran)}</strong>
+									<strong
+										class={totalHariIni.pengeluaran > 0
+											? "color-expense"
+											: "text-neutral"}
+										>{formatRupiah(
+											totalHariIni.pengeluaran,
+										)}</strong
+									>
 								</div>
 
-								<button 
+								<button
 									type="button"
-									class="companion-link-btn" 
-									onclick={() => { activeView = 'report'; switchReportSubTab('mingguan'); }}
+									class="companion-link-btn"
+									onclick={() => {
+										activeView = "report";
+										switchReportSubTab("mingguan");
+									}}
 								>
 									<span>Buka Laporan Mingguan Lengkap</span>
-									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+									<svg
+										width="12"
+										height="12"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.5"
+										><polyline
+											points="9 18 15 12 9 6"
+										/></svg
+									>
 								</button>
 							{:else}
 								<div class="companion-period-info-row">
-									<span class="c-period-text">📅 Bulan {selectedBulan}</span>
-									<span class="companion-count-pill">{rekap.total_transaksi} Transaksi</span>
+									<span class="c-period-text"
+										>📅 Bulan {selectedBulan}</span
+									>
+									<span class="companion-count-pill"
+										>{rekap.total_transaksi} Transaksi</span
+									>
 								</div>
 
 								<div class="companion-stats-grid">
 									<div class="cstat-item">
-										<span class="cstat-label">Pengeluaran</span>
-										<span class="cstat-val color-expense">{formatRupiah(rekap.total_pengeluaran)}</span>
+										<span class="cstat-label"
+											>Pengeluaran</span
+										>
+										<span class="cstat-val color-expense"
+											>{formatRupiah(
+												rekap.total_pengeluaran,
+											)}</span
+										>
 									</div>
 									<div class="cstat-item">
-										<span class="cstat-label">Pemasukan</span>
-										<span class="cstat-val color-income">{formatRupiah(rekap.total_pemasukan)}</span>
+										<span class="cstat-label"
+											>Pemasukan</span
+										>
+										<span class="cstat-val color-income"
+											>{formatRupiah(
+												rekap.total_pemasukan,
+											)}</span
+										>
 									</div>
 								</div>
 
 								<div class="companion-net-row">
-									<span class="cstat-net-lbl">Saldo Bersih</span>
-									<span class="cstat-net-val {rekap.saldo_bersih >= 0 ? 'color-income' : 'color-expense'}">
-										{rekap.saldo_bersih >= 0 ? '+' : ''}{formatRupiah(rekap.saldo_bersih)}
+									<span class="cstat-net-lbl"
+										>Saldo Bersih</span
+									>
+									<span
+										class="cstat-net-val {rekap.saldo_bersih >=
+										0
+											? 'color-income'
+											: 'color-expense'}"
+									>
+										{rekap.saldo_bersih >= 0
+											? "+"
+											: ""}{formatRupiah(
+											rekap.saldo_bersih,
+										)}
 									</span>
 								</div>
 
 								<div class="companion-today-row">
 									<span>Pengeluaran Hari Ini</span>
-									<strong class="{totalHariIni.pengeluaran > 0 ? 'color-expense' : 'text-neutral'}">{formatRupiah(totalHariIni.pengeluaran)}</strong>
+									<strong
+										class={totalHariIni.pengeluaran > 0
+											? "color-expense"
+											: "text-neutral"}
+										>{formatRupiah(
+											totalHariIni.pengeluaran,
+										)}</strong
+									>
 								</div>
 
-								<button 
+								<button
 									type="button"
-									class="companion-link-btn" 
-									onclick={() => { activeView = 'report'; switchReportSubTab('bulanan'); }}
+									class="companion-link-btn"
+									onclick={() => {
+										activeView = "report";
+										switchReportSubTab("bulanan");
+									}}
 								>
 									<span>Buka Laporan Bulanan Lengkap</span>
-									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+									<svg
+										width="12"
+										height="12"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.5"
+										><polyline
+											points="9 18 15 12 9 6"
+										/></svg
+									>
 								</button>
 							{/if}
 						</div>
@@ -2042,50 +4872,143 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						<div class="companion-card">
 							<div class="companion-card-header">
 								<div class="c-head-title-row">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-										<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-										<line x1="16" y1="2" x2="16" y2="6"/>
-										<line x1="8" y1="2" x2="8" y2="6"/>
-										<line x1="3" y1="10" x2="21" y2="10"/>
+									<svg
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<rect
+											x="3"
+											y="4"
+											width="18"
+											height="18"
+											rx="2"
+											ry="2"
+										/>
+										<line x1="16" y1="2" x2="16" y2="6" />
+										<line x1="8" y1="2" x2="8" y2="6" />
+										<line x1="3" y1="10" x2="21" y2="10" />
 									</svg>
-									<span class="companion-card-title">Catatan Hari Ini</span>
+									<span class="companion-card-title"
+										>Catatan Hari Ini</span
+									>
 								</div>
-								<span class="companion-period-pill">{formatTgl(todayTanggal)}</span>
+								<span class="companion-period-pill"
+									>{formatTgl(todayTanggal)}</span
+								>
 							</div>
 
 							{#if transaksiHariIni.length > 0}
 								<div class="companion-tx-list">
 									{#each transaksiHariIni as t}
-										<div 
-											class="companion-tx-item" 
-											onclick={() => openDetail(t.id)} 
-											onkeydown={(e) => { if (e.key === 'Enter') openDetail(t.id); }}
+										<div
+											class="companion-tx-item"
+											onclick={() => openDetail(t.id)}
+											onkeydown={(e) => {
+												if (e.key === "Enter")
+													openDetail(t.id);
+											}}
 											role="button"
 											tabindex="0"
 											title="Klik untuk rincian"
 										>
-											<div class="ctx-icon {t.tipe === 'pemasukan' ? 'icon-green' : 'icon-red'}">
-												{#if t.tipe === 'pemasukan'}
-													<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+											<div
+												class="ctx-icon {t.tipe ===
+												'pemasukan'
+													? 'icon-green'
+													: 'icon-red'}"
+											>
+												{#if t.tipe === "pemasukan"}
+													<svg
+														width="13"
+														height="13"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.4"
+														><path
+															d="M12 5v14M19 12l-7 7-7-7"
+														/></svg
+													>
 												{:else}
-													<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg>
+													<svg
+														width="13"
+														height="13"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.4"
+														><path
+															d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"
+														/><line
+															x1="3"
+															y1="6"
+															x2="21"
+															y2="6"
+														/></svg
+													>
 												{/if}
 											</div>
 											<div class="ctx-body">
-												<span class="ctx-title">{t.toko || (t.tipe === 'pemasukan' ? 'Pemasukan' : 'Transaksi')}</span>
-												<span class="ctx-meta">{t.waktu?.slice(0, 5) || '-'} • {t.kategori}</span>
+												<span class="ctx-title"
+													>{t.toko ||
+														(t.tipe === "pemasukan"
+															? "Pemasukan"
+															: "Transaksi")}</span
+												>
+												<span class="ctx-meta"
+													>{t.waktu?.slice(0, 5) ||
+														"-"} • {t.kategori}</span
+												>
 											</div>
-											<span class="ctx-amt {t.tipe === 'pemasukan' ? 'color-income' : 'color-expense'}">
-												{t.tipe === 'pemasukan' ? '+' : '-'}{formatRupiah(t.total)}
+											<span
+												class="ctx-amt {t.tipe ===
+												'pemasukan'
+													? 'color-income'
+													: 'color-expense'}"
+											>
+												{t.tipe === "pemasukan"
+													? "+"
+													: "-"}{formatRupiah(
+													t.total,
+												)}
 											</span>
 										</div>
 									{/each}
 								</div>
 							{:else}
 								<div class="companion-empty">
-									<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom: 4px; opacity: 0.6;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+									<svg
+										width="20"
+										height="20"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										style="margin-bottom: 4px; opacity: 0.6;"
+										><circle cx="12" cy="12" r="10" /><line
+											x1="12"
+											y1="8"
+											x2="12"
+											y2="12"
+										/><line
+											x1="12"
+											y1="16"
+											x2="12.01"
+											y2="16"
+										/></svg
+									>
 									<div>Belum ada transaksi hari ini.</div>
-									<div style="font-size: 0.72rem; color: #8c8479; margin-top: 2px;">Ketik pesan di chat untuk mencatat.</div>
+									<div
+										style="font-size: 0.72rem; color: #8c8479; margin-top: 2px;"
+									>
+										Ketik pesan di chat untuk mencatat.
+									</div>
 								</div>
 							{/if}
 						</div>
@@ -2094,28 +5017,49 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						<div class="companion-card tips-card">
 							<div class="companion-card-header">
 								<div class="c-head-title-row">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-										<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+									<svg
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path
+											d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"
+										/>
 									</svg>
-									<span class="companion-card-title">Pintasan Catat Cepat</span>
+									<span class="companion-card-title"
+										>Pintasan Catat Cepat</span
+									>
 								</div>
 							</div>
 							<div class="companion-tips-body">
 								<div class="tip-line">
 									<span class="tip-kbd">Ketik:</span>
-									<span class="tip-text">"Beli kopi gula aren 18k"</span>
+									<span class="tip-text"
+										>"Beli kopi gula aren 18k"</span
+									>
 								</div>
 								<div class="tip-line">
 									<span class="tip-kbd">Ketik:</span>
-									<span class="tip-text">"Gaji bulanan masuk 10jt"</span>
+									<span class="tip-text"
+										>"Gaji bulanan masuk 10jt"</span
+									>
 								</div>
 								<div class="tip-line">
 									<span class="tip-kbd">Kamera:</span>
-									<span class="tip-text">Upload / seret foto struk kasir</span>
+									<span class="tip-text"
+										>Upload / seret foto struk kasir</span
+									>
 								</div>
 								<div class="tip-line">
 									<span class="tip-kbd">Enter:</span>
-									<span class="tip-text">Kirim langsung tanpa klik tombol</span>
+									<span class="tip-text"
+										>Kirim langsung tanpa klik tombol</span
+									>
 								</div>
 							</div>
 						</div>
@@ -2123,92 +5067,354 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 				</div>
 			{/if}
 
-			{#if activeView === 'report'}
+			{#if activeView === "report"}
 				<div class="report-mobile-container">
+					<!-- HUB DOMPET & REKENING (ELEGANT DASHBOARD CARD) -->
+					<div class="report-dompet-hub-card">
+						<div class="rdh-head">
+							<div class="rdh-title-group">
+								<span class="rdh-badge">MULTI-DOMPET</span>
+								<h3 class="rdh-title">Dompet & Rekening</h3>
+							</div>
+							<div class="rdh-actions">
+								<button
+									type="button"
+									class="btn-rdh-act btn-rdh-trf"
+									onclick={() => openTransferModal()}
+									title="Transfer Saldo"
+								>
+									<svg
+										width="12"
+										height="12"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.5"
+										><polyline
+											points="17 1 21 5 17 9"
+										/><path
+											d="M3 11V9a4 4 0 0 1 4-4h14"
+										/><polyline
+											points="7 23 3 19 7 15"
+										/><path
+											d="M21 13v2a4 4 0 0 1-4 4H3"
+										/></svg
+									>
+									<span>Transfer</span>
+								</button>
+								<button
+									type="button"
+									class="btn-rdh-act btn-rdh-add"
+									onclick={openCreateDompet}
+									title="Tambah Dompet"
+								>
+									<span>+ Dompet</span>
+								</button>
+							</div>
+						</div>
+
+						<!-- Horizontal Cards Scroll -->
+						<div class="rdh-cards-scroll">
+							<!-- Card Semua Dompet -->
+							<button
+								type="button"
+								class="rdh-card card-all {selectedDompetFilter ===
+								null
+									? 'active-filter'
+									: ''}"
+								onclick={() => selectDompetFilter(null)}
+								title="Filter: Semua Dompet"
+							>
+								<div class="rdhc-top">
+									<span class="rdhc-badge">SEMUA</span>
+									<span
+										class="rdhc-dot {selectedDompetFilter ===
+										null
+											? 'dot-active'
+											: ''}"
+									></span>
+								</div>
+								<div class="rdhc-name">Total Saldo Bersih</div>
+								<div class="rdhc-val">
+									{formatRupiah(totalSaldoDompet)}
+								</div>
+							</button>
+
+							{#each dompetList as d}
+								<div
+									class="rdh-card {selectedDompetFilter ===
+									d.id
+										? 'active-filter'
+										: ''}"
+									style="--card-color: {d.warna || '#2563eb'}"
+									onclick={() => selectDompetFilter(d.id)}
+									onkeydown={(e) => {
+										if (e.key === "Enter")
+											selectDompetFilter(d.id);
+									}}
+									role="button"
+									tabindex="0"
+									title="Klik untuk filter transaksi {d.nama}"
+								>
+									<div class="rdhc-top">
+										<span class="rdhc-icon"
+											>{getDompetIcon(d.tipe)}</span
+										>
+										<div class="rdhc-top-right">
+											<span class="rdhc-tipe"
+												>{d.tipe}</span
+											>
+											<button
+												type="button"
+												class="rdhc-edit-btn"
+												onclick={(e) => {
+													e.stopPropagation();
+													openEditDompet(d);
+												}}
+												title="Edit Dompet"
+											>
+												✏️
+											</button>
+										</div>
+									</div>
+									<div class="rdhc-name">{d.nama}</div>
+									<div class="rdhc-val">
+										{formatRupiah(d.saldo_sekarang)}
+									</div>
+								</div>
+							{/each}
+						</div>
+
+						{#if selectedDompetFilter}
+							{@const curD = dompetList.find(
+								(d) => d.id === selectedDompetFilter,
+							)}
+							<div class="rdh-filter-status-bar">
+								<span
+									>🔍 Filter laporan: <strong
+										>{curD?.nama || "Dompet"}</strong
+									></span
+								>
+								<button
+									type="button"
+									class="btn-rdh-reset"
+									onclick={() => selectDompetFilter(null)}
+								>
+									✕ Tampilkan Semua Dompet
+								</button>
+							</div>
+						{/if}
+					</div>
+
 					<!-- Control Toolbar -->
 					<div class="report-header-card">
-						{#if reportSubTab === 'bulanan'}
+						{#if reportSubTab === "bulanan"}
 							<div class="period-picker-row">
-								<button class="btn-arrow-month" onclick={prevMonth} aria-label="Bulan Sebelumnya">
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+								<button
+									class="btn-arrow-month"
+									onclick={prevMonth}
+									aria-label="Bulan Sebelumnya"
+								>
+									<svg
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.5"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										><polyline
+											points="15 18 9 12 15 6"
+										/></svg
+									>
 								</button>
-								<input 
-									type="month" 
-									class="picker-month-native" 
-									bind:value={selectedBulan} 
-									onchange={loadData} 
+								<input
+									type="month"
+									class="picker-month-native"
+									bind:value={selectedBulan}
+									onchange={loadData}
 								/>
-								<button class="btn-arrow-month" onclick={nextMonth} aria-label="Bulan Berikutnya">
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+								<button
+									class="btn-arrow-month"
+									onclick={nextMonth}
+									aria-label="Bulan Berikutnya"
+								>
+									<svg
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.5"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										><polyline
+											points="9 18 15 12 9 6"
+										/></svg
+									>
 								</button>
-								<button class="btn-today-pill" onclick={currentMonth}>Bulan Ini</button>
+								<button
+									class="btn-today-pill"
+									onclick={currentMonth}>Bulan Ini</button
+								>
 							</div>
-						{:else if reportSubTab === 'mingguan'}
+						{:else if reportSubTab === "mingguan"}
 							<div class="period-picker-row week-picker-toolbar">
-								<button class="btn-arrow-month" onclick={prevWeek} aria-label="Minggu Sebelumnya" title="Minggu Sebelumnya">
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+								<button
+									class="btn-arrow-month"
+									onclick={prevWeek}
+									aria-label="Minggu Sebelumnya"
+									title="Minggu Sebelumnya"
+								>
+									<svg
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.5"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										><polyline
+											points="15 18 9 12 15 6"
+										/></svg
+									>
 								</button>
 								<div class="week-picker-input-wrap">
-									<input 
-										type="date" 
-										class="picker-date-native" 
-										bind:value={selectedWeekDate} 
-										onchange={loadData} 
+									<input
+										type="date"
+										class="picker-date-native"
+										bind:value={selectedWeekDate}
+										onchange={loadData}
 										title="Pilih tanggal dalam minggu ini"
 									/>
 								</div>
-								<button class="btn-arrow-month" onclick={nextWeek} aria-label="Minggu Berikutnya" title="Minggu Berikutnya">
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+								<button
+									class="btn-arrow-month"
+									onclick={nextWeek}
+									aria-label="Minggu Berikutnya"
+									title="Minggu Berikutnya"
+								>
+									<svg
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.5"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										><polyline
+											points="9 18 15 12 9 6"
+										/></svg
+									>
 								</button>
-								<button class="btn-today-pill" onclick={currentWeek}>Minggu Ini</button>
+								<button
+									class="btn-today-pill"
+									onclick={currentWeek}>Minggu Ini</button
+								>
 							</div>
-						{:else if reportSubTab === 'periode'}
+						{:else if reportSubTab === "periode"}
 							<div class="custom-period-control-box">
 								<div class="custom-period-dates">
 									<div class="date-field-group">
-										<label for="inp-custom-start" class="field-label-sm">Dari Tanggal:</label>
-										<input 
+										<label
+											for="inp-custom-start"
+											class="field-label-sm"
+											>Dari Tanggal:</label
+										>
+										<input
 											id="inp-custom-start"
-											type="date" 
-											class="picker-date-native" 
-											bind:value={customStartDate} 
+											type="date"
+											class="picker-date-native"
+											bind:value={customStartDate}
 										/>
 									</div>
 									<span class="date-sep-arrow">→</span>
 									<div class="date-field-group">
-										<label for="inp-custom-end" class="field-label-sm">Sampai Tanggal:</label>
-										<input 
+										<label
+											for="inp-custom-end"
+											class="field-label-sm"
+											>Sampai Tanggal:</label
+										>
+										<input
 											id="inp-custom-end"
-											type="date" 
-											class="picker-date-native" 
-											bind:value={customEndDate} 
+											type="date"
+											class="picker-date-native"
+											bind:value={customEndDate}
 										/>
 									</div>
-									<button class="btn-apply-period" onclick={loadData}>
-										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+									<button
+										class="btn-apply-period"
+										onclick={loadData}
+									>
+										<svg
+											width="14"
+											height="14"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2.5"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											><polyline
+												points="20 6 9 17 4 12"
+											/></svg
+										>
 										<span>Terapkan</span>
 									</button>
 								</div>
 								<div class="period-presets-scroll">
-									<span class="preset-label-hint">Pintas:</span>
-									<button class="preset-chip-btn" onclick={() => setPeriodPreset('7-hari')}>7 Hari</button>
-									<button class="preset-chip-btn" onclick={() => setPeriodPreset('14-hari')}>14 Hari</button>
-									<button class="preset-chip-btn" onclick={() => setPeriodPreset('30-hari')}>30 Hari</button>
-									<button class="preset-chip-btn" onclick={() => setPeriodPreset('bulan-ini')}>Bulan Ini</button>
-									<button class="preset-chip-btn" onclick={() => setPeriodPreset('bulan-lalu')}>Bulan Lalu</button>
+									<span class="preset-label-hint"
+										>Pintas:</span
+									>
+									<button
+										class="preset-chip-btn"
+										onclick={() =>
+											setPeriodPreset("7-hari")}
+										>7 Hari</button
+									>
+									<button
+										class="preset-chip-btn"
+										onclick={() =>
+											setPeriodPreset("14-hari")}
+										>14 Hari</button
+									>
+									<button
+										class="preset-chip-btn"
+										onclick={() =>
+											setPeriodPreset("30-hari")}
+										>30 Hari</button
+									>
+									<button
+										class="preset-chip-btn"
+										onclick={() =>
+											setPeriodPreset("bulan-ini")}
+										>Bulan Ini</button
+									>
+									<button
+										class="preset-chip-btn"
+										onclick={() =>
+											setPeriodPreset("bulan-lalu")}
+										>Bulan Lalu</button
+									>
 								</div>
 							</div>
-						{:else if reportSubTab === 'harian'}
+						{:else if reportSubTab === "harian"}
 							<div class="period-picker-row">
-								<input 
-									type="date" 
-									class="picker-date-native" 
-									bind:value={selectedTanggal} 
+								<input
+									type="date"
+									class="picker-date-native"
+									bind:value={selectedTanggal}
 									onchange={loadData}
 								/>
-								<button 
-									class="btn-today-pill" 
-									onclick={() => { selectedTanggal = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`; loadData(); }}
+								<button
+									class="btn-today-pill"
+									onclick={() => {
+										selectedTanggal = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+										loadData();
+									}}
 								>
 									Hari Ini
 								</button>
@@ -2216,33 +5422,43 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						{/if}
 
 						<div class="sub-segments-row">
-							<button 
-								class="sub-seg-btn {reportSubTab === 'bulanan' ? 'active' : ''}" 
-								onclick={() => switchReportSubTab('bulanan')}
+							<button
+								class="sub-seg-btn {reportSubTab === 'bulanan'
+									? 'active'
+									: ''}"
+								onclick={() => switchReportSubTab("bulanan")}
 							>
 								Bulanan
 							</button>
-							<button 
-								class="sub-seg-btn {reportSubTab === 'mingguan' ? 'active' : ''}" 
-								onclick={() => switchReportSubTab('mingguan')}
+							<button
+								class="sub-seg-btn {reportSubTab === 'mingguan'
+									? 'active'
+									: ''}"
+								onclick={() => switchReportSubTab("mingguan")}
 							>
 								Mingguan
 							</button>
-							<button 
-								class="sub-seg-btn {reportSubTab === 'periode' ? 'active' : ''}" 
-								onclick={() => switchReportSubTab('periode')}
+							<button
+								class="sub-seg-btn {reportSubTab === 'periode'
+									? 'active'
+									: ''}"
+								onclick={() => switchReportSubTab("periode")}
 							>
 								Rentang Tanggal
 							</button>
-							<button 
-								class="sub-seg-btn {reportSubTab === 'harian' ? 'active' : ''}" 
-								onclick={() => switchReportSubTab('harian')}
+							<button
+								class="sub-seg-btn {reportSubTab === 'harian'
+									? 'active'
+									: ''}"
+								onclick={() => switchReportSubTab("harian")}
 							>
 								Harian
 							</button>
-							<button 
-								class="sub-seg-btn {reportSubTab === 'semua' ? 'active' : ''}" 
-								onclick={() => switchReportSubTab('semua')}
+							<button
+								class="sub-seg-btn {reportSubTab === 'semua'
+									? 'active'
+									: ''}"
+								onclick={() => switchReportSubTab("semua")}
 							>
 								Riwayat ({transaksiList.length})
 							</button>
@@ -2250,7 +5466,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 					</div>
 
 					<!-- SUBTAB 1: IKHTISAR BULANAN -->
-					{#if reportSubTab === 'bulanan'}
+					{#if reportSubTab === "bulanan"}
 						<!-- 4 KPI Cards: Mobile 2x2 Grid -->
 						<div class="kpi-mobile-2x2">
 							<div class="mobile-kpi-item">
@@ -2258,27 +5474,41 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 									<span class="kpi-lbl">Pengeluaran</span>
 									<span class="dot-badge badge-red">Out</span>
 								</div>
-								<div class="kpi-num color-expense">{formatRupiah(rekap.total_pengeluaran)}</div>
+								<div class="kpi-num color-expense">
+									{formatRupiah(rekap.total_pengeluaran)}
+								</div>
 								<div class="kpi-subt">{selectedBulan}</div>
 							</div>
 
 							<div class="mobile-kpi-item">
 								<div class="kpi-lbl-row">
 									<span class="kpi-lbl">Pemasukan</span>
-									<span class="dot-badge badge-green">In</span>
+									<span class="dot-badge badge-green">In</span
+									>
 								</div>
-								<div class="kpi-num color-income">{formatRupiah(rekap.total_pemasukan)}</div>
+								<div class="kpi-num color-income">
+									{formatRupiah(rekap.total_pemasukan)}
+								</div>
 								<div class="kpi-subt">{selectedBulan}</div>
 							</div>
 
 							<div class="mobile-kpi-item">
 								<div class="kpi-lbl-row">
 									<span class="kpi-lbl">Saldo Bersih</span>
-									<span class="dot-badge {rekap.saldo_bersih >= 0 ? 'badge-green' : 'badge-red'}">
-										{rekap.saldo_bersih >= 0 ? '+' : '-'}
+									<span
+										class="dot-badge {rekap.saldo_bersih >=
+										0
+											? 'badge-green'
+											: 'badge-red'}"
+									>
+										{rekap.saldo_bersih >= 0 ? "+" : "-"}
 									</span>
 								</div>
-								<div class="kpi-num {rekap.saldo_bersih >= 0 ? 'color-income' : 'color-expense'}">
+								<div
+									class="kpi-num {rekap.saldo_bersih >= 0
+										? 'color-income'
+										: 'color-expense'}"
+								>
 									{formatRupiah(rekap.saldo_bersih)}
 								</div>
 								<div class="kpi-subt">Net Cashflow</div>
@@ -2287,103 +5517,198 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							<div class="mobile-kpi-item">
 								<div class="kpi-lbl-row">
 									<span class="kpi-lbl">Total Nota</span>
-									<span class="dot-badge badge-blue">Rec</span>
+									<span class="dot-badge badge-blue">Rec</span
+									>
 								</div>
-								<div class="kpi-num color-blue">{rekap.total_transaksi} Transaksi</div>
+								<div class="kpi-num color-blue">
+									{rekap.total_transaksi} Transaksi
+								</div>
 								<div class="kpi-subt">Tercatat</div>
 							</div>
 						</div>
 
-						
 						<!-- DESKTOP SPLIT: TREN CHART vs KATEGORI & TOKO -->
 						<div class="report-desktop-split">
 							<div class="report-chart-column">
 								<!-- Tren Pengeluaran Harian Chart -->
-						<div class="card-mobile-panel">
-							<div class="panel-header">
-								<h3 class="panel-title">Tren Pengeluaran Harian</h3>
-								<p class="panel-sub">Akumulasi pengeluaran harian sepanjang bulan</p>
-							</div>
+								<div class="card-mobile-panel">
+									<div class="panel-header">
+										<h3 class="panel-title">
+											Tren Pengeluaran Harian
+										</h3>
+										<p class="panel-sub">
+											Akumulasi pengeluaran harian
+											sepanjang bulan
+										</p>
+									</div>
 
-							{#if rekap.tren_harian && rekap.tren_harian.length > 0}
-								<div class="chart-mobile-scroll">
-									{#each rekap.tren_harian as item}
-										{@const maxVal = Math.max(...rekap.tren_harian.map((x) => x.pengeluaran), 1)}
-										{@const heightPct = Math.min(100, Math.max(12, (item.pengeluaran / maxVal) * 100))}
-										<div class="chart-col-touch" title="{item.tanggal}: {formatRupiah(item.pengeluaran)}">
-											<div class="touch-bar-track">
-												<div class="touch-bar-fill" style="height: {heightPct}%"></div>
-											</div>
-											<span class="touch-date">{item.tanggal.slice(8)}</span>
+									{#if rekap.tren_harian && rekap.tren_harian.length > 0}
+										<div class="chart-mobile-scroll">
+											{#each rekap.tren_harian as item}
+												{@const maxVal = Math.max(
+													...rekap.tren_harian.map(
+														(x) => x.pengeluaran,
+													),
+													1,
+												)}
+												{@const heightPct = Math.min(
+													100,
+													Math.max(
+														12,
+														(item.pengeluaran /
+															maxVal) *
+															100,
+													),
+												)}
+												<div
+													class="chart-col-touch"
+													title="{item.tanggal}: {formatRupiah(
+														item.pengeluaran,
+													)}"
+												>
+													<div
+														class="touch-bar-track"
+													>
+														<div
+															class="touch-bar-fill"
+															style="height: {heightPct}%"
+														></div>
+													</div>
+													<span class="touch-date"
+														>{item.tanggal.slice(
+															8,
+														)}</span
+													>
+												</div>
+											{/each}
 										</div>
-									{/each}
+									{:else}
+										<div class="empty-panel-text">
+											<p>
+												Belum ada data pengeluaran bulan
+												ini.
+											</p>
+										</div>
+									{/if}
 								</div>
-							{:else}
-								<div class="empty-panel-text"><p>Belum ada data pengeluaran bulan ini.</p></div>
-							{/if}
-						</div>
 							</div>
 							<div class="report-side-column">
 								<!-- Kategori & Top Toko -->
-						<div class="card-mobile-panel">
-							<h3 class="panel-title">Kategori Belanja</h3>
-							{#if rekap.rekap_kategori && rekap.rekap_kategori.length > 0}
-								<div class="category-bars-col">
-									{#each rekap.rekap_kategori as cat}
-										{@const pct = rekap.total_pengeluaran > 0 ? Math.round((cat.total / rekap.total_pengeluaran) * 100) : 0}
-										<div class="cat-bar-item">
-											<div class="cat-bar-header">
-												<span class="cat-title">{cat.kategori}</span>
-												<span class="cat-sum">{formatRupiah(cat.total)} ({pct}%)</span>
-											</div>
-											<div class="cat-track">
-												<div class="cat-fill" style="width: {pct}%"></div>
-											</div>
+								<div class="card-mobile-panel">
+									<h3 class="panel-title">
+										Kategori Belanja
+									</h3>
+									{#if rekap.rekap_kategori && rekap.rekap_kategori.length > 0}
+										<div class="category-bars-col">
+											{#each rekap.rekap_kategori as cat}
+												{@const pct =
+													rekap.total_pengeluaran > 0
+														? Math.round(
+																(cat.total /
+																	rekap.total_pengeluaran) *
+																	100,
+															)
+														: 0}
+												<div class="cat-bar-item">
+													<div class="cat-bar-header">
+														<span class="cat-title"
+															>{cat.kategori}</span
+														>
+														<span class="cat-sum"
+															>{formatRupiah(
+																cat.total,
+															)} ({pct}%)</span
+														>
+													</div>
+													<div class="cat-track">
+														<div
+															class="cat-fill"
+															style="width: {pct}%"
+														></div>
+													</div>
+												</div>
+											{/each}
 										</div>
-									{/each}
+									{:else}
+										<div class="empty-panel-text">
+											<p>Belum ada data kategori.</p>
+										</div>
+									{/if}
 								</div>
-							{:else}
-								<div class="empty-panel-text"><p>Belum ada data kategori.</p></div>
-							{/if}
-						</div>
 
-						<div class="card-mobile-panel">
-							<h3 class="panel-title">Toko / Merchant Terbanyak</h3>
-							{#if rekap.top_merchant && rekap.top_merchant.length > 0}
-								<div class="merchant-mini-list">
-									{#each rekap.top_merchant as m, i}
-										<div class="merchant-mini-row">
-											<div class="m-rank">{i + 1}</div>
-											<div class="m-info">
-												<span class="m-name">{m.toko}</span>
-												<span class="m-cnt">{m.count} transaksi</span>
-											</div>
-											<span class="m-tot">{formatRupiah(m.total)}</span>
+								<div class="card-mobile-panel">
+									<h3 class="panel-title">
+										Toko / Merchant Terbanyak
+									</h3>
+									{#if rekap.top_merchant && rekap.top_merchant.length > 0}
+										<div class="merchant-mini-list">
+											{#each rekap.top_merchant as m, i}
+												<div class="merchant-mini-row">
+													<div class="m-rank">
+														{i + 1}
+													</div>
+													<div class="m-info">
+														<span class="m-name"
+															>{m.toko}</span
+														>
+														<span class="m-cnt"
+															>{m.count} transaksi</span
+														>
+													</div>
+													<span class="m-tot"
+														>{formatRupiah(
+															m.total,
+														)}</span
+													>
+												</div>
+											{/each}
 										</div>
-									{/each}
+									{:else}
+										<div class="empty-panel-text">
+											<p>Belum ada merchant tercatat.</p>
+										</div>
+									{/if}
 								</div>
-							{:else}
-								<div class="empty-panel-text"><p>Belum ada merchant tercatat.</p></div>
-							{/if}
-						</div>
 							</div>
 						</div>
 					{/if}
 
 					<!-- SUBTAB: LAPORAN MINGGUAN -->
-					{#if reportSubTab === 'mingguan'}
+					{#if reportSubTab === "mingguan"}
 						<!-- Week Period Banner -->
 						<div class="period-banner-card">
 							<div class="pbc-left">
 								<span class="pbc-icon">📅</span>
 								<div>
-									<div class="pbc-title">Laporan Mingguan</div>
-									<div class="pbc-dates">{formatTglHari(currentWeekRange.start)} — {formatTglHari(currentWeekRange.end)}</div>
+									<div class="pbc-title">
+										Laporan Mingguan
+									</div>
+									<div class="pbc-dates">
+										{formatTglHari(currentWeekRange.start)} —
+										{formatTglHari(currentWeekRange.end)}
+									</div>
 								</div>
 							</div>
-							<button class="btn-csv-mobile" onclick={exportCSV} title="Unduh CSV Transaksi Minggu Ini">
-								<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-									<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+							<button
+								class="btn-csv-mobile"
+								onclick={exportCSV}
+								title="Unduh CSV Transaksi Minggu Ini"
+							>
+								<svg
+									width="13"
+									height="13"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<path
+										d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+									/><polyline
+										points="7 10 12 15 17 10"
+									/><line x1="12" y1="15" x2="12" y2="3" />
 								</svg>
 								<span>CSV</span>
 							</button>
@@ -2396,27 +5721,41 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 									<span class="kpi-lbl">Pengeluaran</span>
 									<span class="dot-badge badge-red">Out</span>
 								</div>
-								<div class="kpi-num color-expense">{formatRupiah(rekap.total_pengeluaran)}</div>
+								<div class="kpi-num color-expense">
+									{formatRupiah(rekap.total_pengeluaran)}
+								</div>
 								<div class="kpi-subt">Minggu Ini</div>
 							</div>
 
 							<div class="mobile-kpi-item">
 								<div class="kpi-lbl-row">
 									<span class="kpi-lbl">Pemasukan</span>
-									<span class="dot-badge badge-green">In</span>
+									<span class="dot-badge badge-green">In</span
+									>
 								</div>
-								<div class="kpi-num color-income">{formatRupiah(rekap.total_pemasukan)}</div>
+								<div class="kpi-num color-income">
+									{formatRupiah(rekap.total_pemasukan)}
+								</div>
 								<div class="kpi-subt">Minggu Ini</div>
 							</div>
 
 							<div class="mobile-kpi-item">
 								<div class="kpi-lbl-row">
 									<span class="kpi-lbl">Saldo Bersih</span>
-									<span class="dot-badge {rekap.saldo_bersih >= 0 ? 'badge-green' : 'badge-red'}">
-										{rekap.saldo_bersih >= 0 ? '+' : '-'}
+									<span
+										class="dot-badge {rekap.saldo_bersih >=
+										0
+											? 'badge-green'
+											: 'badge-red'}"
+									>
+										{rekap.saldo_bersih >= 0 ? "+" : "-"}
 									</span>
 								</div>
-								<div class="kpi-num {rekap.saldo_bersih >= 0 ? 'color-income' : 'color-expense'}">
+								<div
+									class="kpi-num {rekap.saldo_bersih >= 0
+										? 'color-income'
+										: 'color-expense'}"
+								>
 									{formatRupiah(rekap.saldo_bersih)}
 								</div>
 								<div class="kpi-subt">Net Cashflow</div>
@@ -2425,9 +5764,12 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							<div class="mobile-kpi-item">
 								<div class="kpi-lbl-row">
 									<span class="kpi-lbl">Total Nota</span>
-									<span class="dot-badge badge-blue">Rec</span>
+									<span class="dot-badge badge-blue">Rec</span
+									>
 								</div>
-								<div class="kpi-num color-blue">{rekap.total_transaksi} Transaksi</div>
+								<div class="kpi-num color-blue">
+									{rekap.total_transaksi} Transaksi
+								</div>
 								<div class="kpi-subt">Tercatat</div>
 							</div>
 						</div>
@@ -2435,21 +5777,71 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						<!-- 7-Hari Aktivitas Bar Chart (Senin - Minggu) -->
 						<div class="card-mobile-panel">
 							<div class="panel-header">
-								<h3 class="panel-title">Aktivitas 7 Hari (Senin – Minggu)</h3>
-								<p class="panel-sub">Akumulasi pengeluaran harian sepanjang minggu terpilih</p>
+								<h3 class="panel-title">
+									Aktivitas 7 Hari (Senin – Minggu)
+								</h3>
+								<p class="panel-sub">
+									Akumulasi pengeluaran harian sepanjang
+									minggu terpilih
+								</p>
 							</div>
 							<div class="week-chart-grid">
 								{#each weekDaysData as day}
-									{@const maxVal = Math.max(...weekDaysData.map((x) => x.pengeluaran), 1)}
-									{@const heightPct = Math.min(100, Math.max(12, (day.pengeluaran / maxVal) * 100))}
+									{@const maxVal = Math.max(
+										...weekDaysData.map(
+											(x) => x.pengeluaran,
+										),
+										1,
+									)}
+									{@const heightPct = Math.min(
+										100,
+										Math.max(
+											12,
+											(day.pengeluaran / maxVal) * 100,
+										),
+									)}
 									{@const isToday = day.date === todayTanggal}
-									<div class="week-day-card {isToday ? 'is-today-day' : ''}" title="{day.dayFull}, {day.date}: Pengeluaran {formatRupiah(day.pengeluaran)} ({day.count} transaksi)">
-										<div class="wdc-nominal">{day.pengeluaran > 0 ? (day.pengeluaran >= 1000000 ? (day.pengeluaran/1000000).toFixed(1) + 'jt' : (day.pengeluaran/1000).toFixed(0) + 'rb') : '-'}</div>
-										<div class="wdc-bar-track">
-											<div class="wdc-bar-fill {day.pengeluaran > 0 ? 'fill-has-val' : ''}" style="height: {day.pengeluaran > 0 ? heightPct : 6}%"></div>
+									<div
+										class="week-day-card {isToday
+											? 'is-today-day'
+											: ''}"
+										title="{day.dayFull}, {day.date}: Pengeluaran {formatRupiah(
+											day.pengeluaran,
+										)} ({day.count} transaksi)"
+									>
+										<div class="wdc-nominal">
+											{day.pengeluaran > 0
+												? day.pengeluaran >= 1000000
+													? (
+															day.pengeluaran /
+															1000000
+														).toFixed(1) + "jt"
+													: (
+															day.pengeluaran /
+															1000
+														).toFixed(0) + "rb"
+												: "-"}
 										</div>
-										<span class="wdc-day-name">{day.dayShort}</span>
-										<span class="wdc-day-num {isToday ? 'active-today-pill' : ''}">{day.dayNum}</span>
+										<div class="wdc-bar-track">
+											<div
+												class="wdc-bar-fill {day.pengeluaran >
+												0
+													? 'fill-has-val'
+													: ''}"
+												style="height: {day.pengeluaran >
+												0
+													? heightPct
+													: 6}%"
+											></div>
+										</div>
+										<span class="wdc-day-name"
+											>{day.dayShort}</span
+										>
+										<span
+											class="wdc-day-num {isToday
+												? 'active-today-pill'
+												: ''}">{day.dayNum}</span
+										>
 									</div>
 								{/each}
 							</div>
@@ -2459,46 +5851,86 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						<div class="report-desktop-split">
 							<div class="report-chart-column">
 								<div class="card-mobile-panel">
-									<h3 class="panel-title">Kategori Belanja Mingguan</h3>
+									<h3 class="panel-title">
+										Kategori Belanja Mingguan
+									</h3>
 									{#if rekap.rekap_kategori && rekap.rekap_kategori.length > 0}
 										<div class="category-bars-col">
 											{#each rekap.rekap_kategori as cat}
-												{@const pct = rekap.total_pengeluaran > 0 ? Math.round((cat.total / rekap.total_pengeluaran) * 100) : 0}
+												{@const pct =
+													rekap.total_pengeluaran > 0
+														? Math.round(
+																(cat.total /
+																	rekap.total_pengeluaran) *
+																	100,
+															)
+														: 0}
 												<div class="cat-bar-item">
 													<div class="cat-bar-header">
-														<span class="cat-title">{cat.kategori}</span>
-														<span class="cat-sum">{formatRupiah(cat.total)} ({pct}%)</span>
+														<span class="cat-title"
+															>{cat.kategori}</span
+														>
+														<span class="cat-sum"
+															>{formatRupiah(
+																cat.total,
+															)} ({pct}%)</span
+														>
 													</div>
 													<div class="cat-track">
-														<div class="cat-fill" style="width: {pct}%"></div>
+														<div
+															class="cat-fill"
+															style="width: {pct}%"
+														></div>
 													</div>
 												</div>
 											{/each}
 										</div>
 									{:else}
-										<div class="empty-panel-text"><p>Belum ada data kategori minggu ini.</p></div>
+										<div class="empty-panel-text">
+											<p>
+												Belum ada data kategori minggu
+												ini.
+											</p>
+										</div>
 									{/if}
 								</div>
 							</div>
 
 							<div class="report-side-column">
 								<div class="card-mobile-panel">
-									<h3 class="panel-title">Toko / Merchant Terbanyak</h3>
+									<h3 class="panel-title">
+										Toko / Merchant Terbanyak
+									</h3>
 									{#if rekap.top_merchant && rekap.top_merchant.length > 0}
 										<div class="merchant-mini-list">
 											{#each rekap.top_merchant as m, i}
 												<div class="merchant-mini-row">
-													<div class="m-rank">{i + 1}</div>
-													<div class="m-info">
-														<span class="m-name">{m.toko}</span>
-														<span class="m-cnt">{m.count} transaksi</span>
+													<div class="m-rank">
+														{i + 1}
 													</div>
-													<span class="m-tot">{formatRupiah(m.total)}</span>
+													<div class="m-info">
+														<span class="m-name"
+															>{m.toko}</span
+														>
+														<span class="m-cnt"
+															>{m.count} transaksi</span
+														>
+													</div>
+													<span class="m-tot"
+														>{formatRupiah(
+															m.total,
+														)}</span
+													>
 												</div>
 											{/each}
 										</div>
 									{:else}
-										<div class="empty-panel-text"><p>Belum ada merchant tercatat minggu ini.</p></div>
+										<div class="empty-panel-text">
+											<p>
+												Belum ada merchant tercatat
+												minggu ini.
+											</p>
+										</div>
 									{/if}
 								</div>
 							</div>
@@ -2507,22 +5939,53 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						<!-- Daftar Transaksi Minggu Ini -->
 						<div class="card-mobile-panel">
 							<div class="search-and-export">
-								<h3 class="panel-title">Daftar Transaksi Minggu Ini ({filteredTransaksi.length})</h3>
-								<button class="btn-csv-mobile" onclick={exportCSV}>
-									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+								<h3 class="panel-title">
+									Daftar Transaksi Minggu Ini ({filteredTransaksi.length})
+								</h3>
+								<button
+									class="btn-csv-mobile"
+									onclick={exportCSV}
+								>
+									<svg
+										width="13"
+										height="13"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path
+											d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+										/><polyline
+											points="7 10 12 15 17 10"
+										/><line
+											x1="12"
+											y1="15"
+											x2="12"
+											y2="3"
+										/>
 									</svg>
 									<span>CSV</span>
 								</button>
 							</div>
 
 							<div class="mobile-filter-pills mt-2">
-								<select bind:value={filterTipe} class="native-filter-select">
+								<select
+									bind:value={filterTipe}
+									class="native-filter-select"
+								>
 									<option value="">Semua Tipe</option>
-									<option value="pengeluaran">Pengeluaran</option>
+									<option value="pengeluaran"
+										>Pengeluaran</option
+									>
 									<option value="pemasukan">Pemasukan</option>
 								</select>
-								<select bind:value={filterKategori} class="native-filter-select">
+								<select
+									bind:value={filterKategori}
+									class="native-filter-select"
+								>
 									<option value="">Semua Kategori</option>
 									{#each KATEGORI_OPTIONS as k}
 										<option value={k}>{k}</option>
@@ -2533,58 +5996,141 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							{#if filteredTransaksi.length > 0}
 								<div class="mobile-cards-stream mt-2">
 									{#each filteredTransaksi as t}
-										<div 
-											class="mobile-tx-entry" 
-											onclick={() => openDetail(t.id)} 
-											onkeydown={(e) => { if (e.key === 'Enter') openDetail(t.id); }} 
-											role="button" 
+										<div
+											class="mobile-tx-entry"
+											onclick={() => openDetail(t.id)}
+											onkeydown={(e) => {
+												if (e.key === "Enter")
+													openDetail(t.id);
+											}}
+											role="button"
 											tabindex="0"
 										>
-											<div class="entry-icon {t.tipe === 'pemasukan' ? 'icon-green' : 'icon-red'}">
-												{#if t.tipe === 'pemasukan'}
-													<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-														<path d="M12 5v14M19 12l-7 7-7-7"/>
+											<div
+												class="entry-icon {t.tipe ===
+												'pemasukan'
+													? 'icon-green'
+													: 'icon-red'}"
+											>
+												{#if t.tipe === "pemasukan"}
+													<svg
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path
+															d="M12 5v14M19 12l-7 7-7-7"
+														/>
 													</svg>
 												{:else}
-													<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-														<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>
+													<svg
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path
+															d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"
+														/><line
+															x1="3"
+															y1="6"
+															x2="21"
+															y2="6"
+														/><path
+															d="M16 10a4 4 0 0 1-8 0"
+														/>
 													</svg>
 												{/if}
 											</div>
 											<div class="entry-core">
 												<div class="entry-row-top">
-													<span class="entry-merchant">{t.toko || (t.tipe === 'pemasukan' ? 'Pemasukan' : 'Transaksi')}</span>
-													<span class="entry-amount {t.tipe === 'pemasukan' ? 'color-income' : 'color-expense'}">
-														{t.tipe === 'pemasukan' ? '+' : '-'} {formatRupiah(t.total)}
+													<span class="entry-merchant"
+														>{t.toko ||
+															(t.tipe ===
+															"pemasukan"
+																? "Pemasukan"
+																: "Transaksi")}</span
+													>
+													<span
+														class="entry-amount {t.tipe ===
+														'pemasukan'
+															? 'color-income'
+															: 'color-expense'}"
+													>
+														{t.tipe === "pemasukan"
+															? "+"
+															: "-"}
+														{formatRupiah(t.total)}
 													</span>
 												</div>
 												<div class="entry-row-sub">
-													<span>{formatTgl(t.tanggal)} • {t.waktu?.slice(0, 5)} • {t.kategori} • {t.metode_bayar}</span>
+													<span
+														>{formatTgl(t.tanggal)} •
+														{t.waktu?.slice(0, 5)} •
+														{t.kategori} • {t.metode_bayar}</span
+													>
 												</div>
 											</div>
 										</div>
 									{/each}
 								</div>
 							{:else}
-								<div class="empty-panel-text"><p>Tidak ada transaksi pada minggu ini.</p></div>
+								<div class="empty-panel-text">
+									<p>Tidak ada transaksi pada minggu ini.</p>
+								</div>
 							{/if}
 						</div>
 					{/if}
 
 					<!-- SUBTAB: LAPORAN RENTANG PERIODE TANGGAL KUSTOM -->
-					{#if reportSubTab === 'periode'}
+					{#if reportSubTab === "periode"}
 						<!-- Period Banner -->
 						<div class="period-banner-card">
 							<div class="pbc-left">
 								<span class="pbc-icon">🗓️</span>
 								<div>
-									<div class="pbc-title">Laporan Periode Tanggal</div>
-									<div class="pbc-dates">{formatTgl(customStartDate)} s/d {formatTgl(customEndDate)} • {calculateDayDiff(customStartDate, customEndDate)} Hari</div>
+									<div class="pbc-title">
+										Laporan Periode Tanggal
+									</div>
+									<div class="pbc-dates">
+										{formatTgl(customStartDate)} s/d {formatTgl(
+											customEndDate,
+										)} • {calculateDayDiff(
+											customStartDate,
+											customEndDate,
+										)} Hari
+									</div>
 								</div>
 							</div>
-							<button class="btn-csv-mobile" onclick={exportCSV} title="Unduh CSV Transaksi Periode Ini">
-								<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-									<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+							<button
+								class="btn-csv-mobile"
+								onclick={exportCSV}
+								title="Unduh CSV Transaksi Periode Ini"
+							>
+								<svg
+									width="13"
+									height="13"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<path
+										d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+									/><polyline
+										points="7 10 12 15 17 10"
+									/><line x1="12" y1="15" x2="12" y2="3" />
 								</svg>
 								<span>CSV</span>
 							</button>
@@ -2597,27 +6143,41 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 									<span class="kpi-lbl">Pengeluaran</span>
 									<span class="dot-badge badge-red">Out</span>
 								</div>
-								<div class="kpi-num color-expense">{formatRupiah(rekap.total_pengeluaran)}</div>
+								<div class="kpi-num color-expense">
+									{formatRupiah(rekap.total_pengeluaran)}
+								</div>
 								<div class="kpi-subt">Total Periode</div>
 							</div>
 
 							<div class="mobile-kpi-item">
 								<div class="kpi-lbl-row">
 									<span class="kpi-lbl">Pemasukan</span>
-									<span class="dot-badge badge-green">In</span>
+									<span class="dot-badge badge-green">In</span
+									>
 								</div>
-								<div class="kpi-num color-income">{formatRupiah(rekap.total_pemasukan)}</div>
+								<div class="kpi-num color-income">
+									{formatRupiah(rekap.total_pemasukan)}
+								</div>
 								<div class="kpi-subt">Total Periode</div>
 							</div>
 
 							<div class="mobile-kpi-item">
 								<div class="kpi-lbl-row">
 									<span class="kpi-lbl">Saldo Bersih</span>
-									<span class="dot-badge {rekap.saldo_bersih >= 0 ? 'badge-green' : 'badge-red'}">
-										{rekap.saldo_bersih >= 0 ? '+' : '-'}
+									<span
+										class="dot-badge {rekap.saldo_bersih >=
+										0
+											? 'badge-green'
+											: 'badge-red'}"
+									>
+										{rekap.saldo_bersih >= 0 ? "+" : "-"}
 									</span>
 								</div>
-								<div class="kpi-num {rekap.saldo_bersih >= 0 ? 'color-income' : 'color-expense'}">
+								<div
+									class="kpi-num {rekap.saldo_bersih >= 0
+										? 'color-income'
+										: 'color-expense'}"
+								>
 									{formatRupiah(rekap.saldo_bersih)}
 								</div>
 								<div class="kpi-subt">Net Cashflow</div>
@@ -2626,9 +6186,12 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							<div class="mobile-kpi-item">
 								<div class="kpi-lbl-row">
 									<span class="kpi-lbl">Total Nota</span>
-									<span class="dot-badge badge-blue">Rec</span>
+									<span class="dot-badge badge-blue">Rec</span
+									>
 								</div>
-								<div class="kpi-num color-blue">{rekap.total_transaksi} Transaksi</div>
+								<div class="kpi-num color-blue">
+									{rekap.total_transaksi} Transaksi
+								</div>
 								<div class="kpi-subt">Dalam Periode</div>
 							</div>
 						</div>
@@ -2638,69 +6201,146 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							<div class="report-chart-column">
 								<div class="card-mobile-panel">
 									<div class="panel-header">
-										<h3 class="panel-title">Tren Pengeluaran Harian</h3>
-										<p class="panel-sub">Akumulasi pengeluaran harian sepanjang rentang periode</p>
+										<h3 class="panel-title">
+											Tren Pengeluaran Harian
+										</h3>
+										<p class="panel-sub">
+											Akumulasi pengeluaran harian
+											sepanjang rentang periode
+										</p>
 									</div>
 
 									{#if rekap.tren_harian && rekap.tren_harian.length > 0}
 										<div class="chart-mobile-scroll">
 											{#each rekap.tren_harian as item}
-												{@const maxVal = Math.max(...rekap.tren_harian.map((x) => x.pengeluaran), 1)}
-												{@const heightPct = Math.min(100, Math.max(12, (item.pengeluaran / maxVal) * 100))}
-												<div class="chart-col-touch" title="{item.tanggal}: {formatRupiah(item.pengeluaran)}">
-													<div class="touch-bar-track">
-														<div class="touch-bar-fill" style="height: {heightPct}%"></div>
+												{@const maxVal = Math.max(
+													...rekap.tren_harian.map(
+														(x) => x.pengeluaran,
+													),
+													1,
+												)}
+												{@const heightPct = Math.min(
+													100,
+													Math.max(
+														12,
+														(item.pengeluaran /
+															maxVal) *
+															100,
+													),
+												)}
+												<div
+													class="chart-col-touch"
+													title="{item.tanggal}: {formatRupiah(
+														item.pengeluaran,
+													)}"
+												>
+													<div
+														class="touch-bar-track"
+													>
+														<div
+															class="touch-bar-fill"
+															style="height: {heightPct}%"
+														></div>
 													</div>
-													<span class="touch-date">{item.tanggal.slice(8)}</span>
+													<span class="touch-date"
+														>{item.tanggal.slice(
+															8,
+														)}</span
+													>
 												</div>
 											{/each}
 										</div>
 									{:else}
-										<div class="empty-panel-text"><p>Belum ada data transaksi dalam periode ini.</p></div>
+										<div class="empty-panel-text">
+											<p>
+												Belum ada data transaksi dalam
+												periode ini.
+											</p>
+										</div>
 									{/if}
 								</div>
 							</div>
 
 							<div class="report-side-column">
 								<div class="card-mobile-panel">
-									<h3 class="panel-title">Kategori Belanja</h3>
+									<h3 class="panel-title">
+										Kategori Belanja
+									</h3>
 									{#if rekap.rekap_kategori && rekap.rekap_kategori.length > 0}
 										<div class="category-bars-col">
 											{#each rekap.rekap_kategori as cat}
-												{@const pct = rekap.total_pengeluaran > 0 ? Math.round((cat.total / rekap.total_pengeluaran) * 100) : 0}
+												{@const pct =
+													rekap.total_pengeluaran > 0
+														? Math.round(
+																(cat.total /
+																	rekap.total_pengeluaran) *
+																	100,
+															)
+														: 0}
 												<div class="cat-bar-item">
 													<div class="cat-bar-header">
-														<span class="cat-title">{cat.kategori}</span>
-														<span class="cat-sum">{formatRupiah(cat.total)} ({pct}%)</span>
+														<span class="cat-title"
+															>{cat.kategori}</span
+														>
+														<span class="cat-sum"
+															>{formatRupiah(
+																cat.total,
+															)} ({pct}%)</span
+														>
 													</div>
 													<div class="cat-track">
-														<div class="cat-fill" style="width: {pct}%"></div>
+														<div
+															class="cat-fill"
+															style="width: {pct}%"
+														></div>
 													</div>
 												</div>
 											{/each}
 										</div>
 									{:else}
-										<div class="empty-panel-text"><p>Belum ada data kategori dalam periode ini.</p></div>
+										<div class="empty-panel-text">
+											<p>
+												Belum ada data kategori dalam
+												periode ini.
+											</p>
+										</div>
 									{/if}
 								</div>
 
 								<div class="card-mobile-panel">
-									<h3 class="panel-title">Toko / Merchant Terbanyak</h3>
+									<h3 class="panel-title">
+										Toko / Merchant Terbanyak
+									</h3>
 									{#if rekap.top_merchant && rekap.top_merchant.length > 0}
 										<div class="merchant-mini-list">
 											{#each rekap.top_merchant as m, i}
 												<div class="merchant-mini-row">
-													<div class="m-rank">{i + 1}</div>
-													<div class="m-info">
-														<span class="m-name">{m.toko}</span>
-														<span class="m-cnt">{m.count} transaksi</span>
+													<div class="m-rank">
+														{i + 1}
 													</div>
-													<span class="m-tot">{formatRupiah(m.total)}</span>
+													<div class="m-info">
+														<span class="m-name"
+															>{m.toko}</span
+														>
+														<span class="m-cnt"
+															>{m.count} transaksi</span
+														>
+													</div>
+													<span class="m-tot"
+														>{formatRupiah(
+															m.total,
+														)}</span
+													>
 												</div>
 											{/each}
 										</div>
 									{:else}
-										<div class="empty-panel-text"><p>Belum ada merchant tercatat dalam periode ini.</p></div>
+										<div class="empty-panel-text">
+											<p>
+												Belum ada merchant tercatat
+												dalam periode ini.
+											</p>
+										</div>
 									{/if}
 								</div>
 							</div>
@@ -2710,30 +6350,74 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						<div class="card-mobile-panel">
 							<div class="search-and-export">
 								<div class="mobile-search-bar">
-									<svg class="search-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-										<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+									<svg
+										class="search-svg"
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<circle cx="11" cy="11" r="8" /><line
+											x1="21"
+											y1="21"
+											x2="16.65"
+											y2="16.65"
+										/>
 									</svg>
-									<input 
-										type="text" 
-										placeholder="Cari toko / catatan dalam periode..." 
-										bind:value={searchQuery} 
+									<input
+										type="text"
+										placeholder="Cari toko / catatan dalam periode..."
+										bind:value={searchQuery}
 									/>
 								</div>
-								<button class="btn-csv-mobile" onclick={exportCSV}>
-									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+								<button
+									class="btn-csv-mobile"
+									onclick={exportCSV}
+								>
+									<svg
+										width="13"
+										height="13"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path
+											d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+										/><polyline
+											points="7 10 12 15 17 10"
+										/><line
+											x1="12"
+											y1="15"
+											x2="12"
+											y2="3"
+										/>
 									</svg>
 									<span>CSV</span>
 								</button>
 							</div>
 
 							<div class="mobile-filter-pills mt-2">
-								<select bind:value={filterTipe} class="native-filter-select">
+								<select
+									bind:value={filterTipe}
+									class="native-filter-select"
+								>
 									<option value="">Semua Tipe</option>
-									<option value="pengeluaran">Pengeluaran</option>
+									<option value="pengeluaran"
+										>Pengeluaran</option
+									>
 									<option value="pemasukan">Pemasukan</option>
 								</select>
-								<select bind:value={filterKategori} class="native-filter-select">
+								<select
+									bind:value={filterKategori}
+									class="native-filter-select"
+								>
 									<option value="">Semua Kategori</option>
 									{#each KATEGORI_OPTIONS as k}
 										<option value={k}>{k}</option>
@@ -2744,60 +6428,124 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							{#if filteredTransaksi.length > 0}
 								<div class="mobile-cards-stream mt-2">
 									{#each filteredTransaksi as t}
-										<div 
-											class="mobile-tx-entry" 
-											onclick={() => openDetail(t.id)} 
-											onkeydown={(e) => { if (e.key === 'Enter') openDetail(t.id); }} 
-											role="button" 
+										<div
+											class="mobile-tx-entry"
+											onclick={() => openDetail(t.id)}
+											onkeydown={(e) => {
+												if (e.key === "Enter")
+													openDetail(t.id);
+											}}
+											role="button"
 											tabindex="0"
 										>
-											<div class="entry-icon {t.tipe === 'pemasukan' ? 'icon-green' : 'icon-red'}">
-												{#if t.tipe === 'pemasukan'}
-													<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-														<path d="M12 5v14M19 12l-7 7-7-7"/>
+											<div
+												class="entry-icon {t.tipe ===
+												'pemasukan'
+													? 'icon-green'
+													: 'icon-red'}"
+											>
+												{#if t.tipe === "pemasukan"}
+													<svg
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path
+															d="M12 5v14M19 12l-7 7-7-7"
+														/>
 													</svg>
 												{:else}
-													<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-														<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>
+													<svg
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path
+															d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"
+														/><line
+															x1="3"
+															y1="6"
+															x2="21"
+															y2="6"
+														/><path
+															d="M16 10a4 4 0 0 1-8 0"
+														/>
 													</svg>
 												{/if}
 											</div>
 											<div class="entry-core">
 												<div class="entry-row-top">
-													<span class="entry-merchant">{t.toko || (t.tipe === 'pemasukan' ? 'Pemasukan' : 'Transaksi')}</span>
-													<span class="entry-amount {t.tipe === 'pemasukan' ? 'color-income' : 'color-expense'}">
-														{t.tipe === 'pemasukan' ? '+' : '-'} {formatRupiah(t.total)}
+													<span class="entry-merchant"
+														>{t.toko ||
+															(t.tipe ===
+															"pemasukan"
+																? "Pemasukan"
+																: "Transaksi")}</span
+													>
+													<span
+														class="entry-amount {t.tipe ===
+														'pemasukan'
+															? 'color-income'
+															: 'color-expense'}"
+													>
+														{t.tipe === "pemasukan"
+															? "+"
+															: "-"}
+														{formatRupiah(t.total)}
 													</span>
 												</div>
 												<div class="entry-row-sub">
-													<span>{formatTgl(t.tanggal)} • {t.waktu?.slice(0, 5)} • {t.kategori} • {t.metode_bayar}</span>
+													<span
+														>{formatTgl(t.tanggal)} •
+														{t.waktu?.slice(0, 5)} •
+														{t.kategori} • {t.metode_bayar}</span
+													>
 												</div>
 											</div>
 										</div>
 									{/each}
 								</div>
 							{:else}
-								<div class="empty-panel-text"><p>Tidak ada transaksi dalam periode ini.</p></div>
+								<div class="empty-panel-text">
+									<p>
+										Tidak ada transaksi dalam periode ini.
+									</p>
+								</div>
 							{/if}
 						</div>
 					{/if}
 
 					<!-- SUBTAB 4: REKAP HARIAN -->
-					{#if reportSubTab === 'harian'}
+					{#if reportSubTab === "harian"}
 						<div class="card-mobile-panel">
 							<div class="daily-picker-box">
 								<div class="daily-picker-left">
-									<label for="inp-date-daily" class="daily-lbl">Pilih Tanggal:</label>
-									<input 
-										id="inp-date-daily" 
-										type="date" 
-										class="picker-date-native" 
-										bind:value={selectedTanggal} 
+									<label
+										for="inp-date-daily"
+										class="daily-lbl">Pilih Tanggal:</label
+									>
+									<input
+										id="inp-date-daily"
+										type="date"
+										class="picker-date-native"
+										bind:value={selectedTanggal}
 									/>
 								</div>
-								<button 
-									class="btn-today-pill" 
-									onclick={() => { selectedTanggal = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`; }}
+								<button
+									class="btn-today-pill"
+									onclick={() => {
+										selectedTanggal = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+									}}
 								>
 									Hari Ini
 								</button>
@@ -2806,86 +6554,196 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							<div class="daily-chips-stats">
 								<div class="stat-pill-item">
 									<span class="sp-lbl">Pengeluaran:</span>
-									<span class="sp-val color-expense">{formatRupiah(totalHarian.pengeluaran)}</span>
+									<span class="sp-val color-expense"
+										>{formatRupiah(
+											totalHarian.pengeluaran,
+										)}</span
+									>
 								</div>
 								<div class="stat-pill-item">
 									<span class="sp-lbl">Pemasukan:</span>
-									<span class="sp-val color-income">{formatRupiah(totalHarian.pemasukan)}</span>
+									<span class="sp-val color-income"
+										>{formatRupiah(
+											totalHarian.pemasukan,
+										)}</span
+									>
 								</div>
 							</div>
 
-							<h4 class="daily-list-title mt-3">Transaksi {formatTgl(selectedTanggal)}</h4>
+							<h4 class="daily-list-title mt-3">
+								Transaksi {formatTgl(selectedTanggal)}
+							</h4>
 
 							{#if harianTransaksi.length > 0}
 								<div class="mobile-cards-stream">
 									{#each harianTransaksi as t}
-										<div 
-											class="mobile-tx-entry" 
-											onclick={() => openDetail(t.id)} 
-											onkeydown={(e) => { if (e.key === 'Enter') openDetail(t.id); }} 
-											role="button" 
+										<div
+											class="mobile-tx-entry"
+											onclick={() => openDetail(t.id)}
+											onkeydown={(e) => {
+												if (e.key === "Enter")
+													openDetail(t.id);
+											}}
+											role="button"
 											tabindex="0"
 										>
-											<div class="entry-icon {t.tipe === 'pemasukan' ? 'icon-green' : 'icon-red'}">
-												{#if t.tipe === 'pemasukan'}
-													<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-														<path d="M12 5v14M19 12l-7 7-7-7"/>
+											<div
+												class="entry-icon {t.tipe ===
+												'pemasukan'
+													? 'icon-green'
+													: 'icon-red'}"
+											>
+												{#if t.tipe === "pemasukan"}
+													<svg
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path
+															d="M12 5v14M19 12l-7 7-7-7"
+														/>
 													</svg>
 												{:else}
-													<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-														<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>
+													<svg
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path
+															d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"
+														/><line
+															x1="3"
+															y1="6"
+															x2="21"
+															y2="6"
+														/><path
+															d="M16 10a4 4 0 0 1-8 0"
+														/>
 													</svg>
 												{/if}
 											</div>
 											<div class="entry-core">
 												<div class="entry-row-top">
-													<span class="entry-merchant">{t.toko || (t.tipe === 'pemasukan' ? 'Pemasukan' : 'Transaksi')}</span>
-													<span class="entry-amount {t.tipe === 'pemasukan' ? 'color-income' : 'color-expense'}">
-														{t.tipe === 'pemasukan' ? '+' : '-'} {formatRupiah(t.total)}
+													<span class="entry-merchant"
+														>{t.toko ||
+															(t.tipe ===
+															"pemasukan"
+																? "Pemasukan"
+																: "Transaksi")}</span
+													>
+													<span
+														class="entry-amount {t.tipe ===
+														'pemasukan'
+															? 'color-income'
+															: 'color-expense'}"
+													>
+														{t.tipe === "pemasukan"
+															? "+"
+															: "-"}
+														{formatRupiah(t.total)}
 													</span>
 												</div>
 												<div class="entry-row-sub">
-													<span>{t.waktu?.slice(0, 5)} • {t.kategori} • {t.metode_bayar}</span>
+													<span
+														>{t.waktu?.slice(0, 5)} •
+														{t.kategori} • {t.metode_bayar}</span
+													>
 												</div>
 											</div>
 										</div>
 									{/each}
 								</div>
 							{:else}
-								<div class="empty-panel-text"><p>Tidak ada transaksi pada tanggal ini.</p></div>
+								<div class="empty-panel-text">
+									<p>Tidak ada transaksi pada tanggal ini.</p>
+								</div>
 							{/if}
 						</div>
 					{/if}
 
 					<!-- SUBTAB 3: RIWAYAT TRANSAKSI LENGKAP -->
-					{#if reportSubTab === 'semua'}
+					{#if reportSubTab === "semua"}
 						<div class="card-mobile-panel">
 							<div class="search-and-export">
 								<div class="mobile-search-bar">
-									<svg class="search-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-										<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+									<svg
+										class="search-svg"
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<circle cx="11" cy="11" r="8" /><line
+											x1="21"
+											y1="21"
+											x2="16.65"
+											y2="16.65"
+										/>
 									</svg>
-									<input 
-										type="text" 
-										placeholder="Cari toko / kategori..." 
-										bind:value={searchQuery} 
+									<input
+										type="text"
+										placeholder="Cari toko / kategori..."
+										bind:value={searchQuery}
 									/>
 								</div>
-								<button class="btn-csv-mobile" onclick={exportCSV}>
-									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+								<button
+									class="btn-csv-mobile"
+									onclick={exportCSV}
+								>
+									<svg
+										width="13"
+										height="13"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path
+											d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+										/><polyline
+											points="7 10 12 15 17 10"
+										/><line
+											x1="12"
+											y1="15"
+											x2="12"
+											y2="3"
+										/>
 									</svg>
 									<span>CSV</span>
 								</button>
 							</div>
 
 							<div class="mobile-filter-pills">
-								<select bind:value={filterTipe} class="native-filter-select">
+								<select
+									bind:value={filterTipe}
+									class="native-filter-select"
+								>
 									<option value="">Semua Tipe</option>
-									<option value="pengeluaran">Pengeluaran</option>
+									<option value="pengeluaran"
+										>Pengeluaran</option
+									>
 									<option value="pemasukan">Pemasukan</option>
 								</select>
-								<select bind:value={filterKategori} class="native-filter-select">
+								<select
+									bind:value={filterKategori}
+									class="native-filter-select"
+								>
 									<option value="">Semua Kategori</option>
 									{#each KATEGORI_OPTIONS as k}
 										<option value={k}>{k}</option>
@@ -2896,40 +6754,96 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							{#if filteredTransaksi.length > 0}
 								<div class="mobile-cards-stream mt-2">
 									{#each filteredTransaksi as t}
-										<div 
-											class="mobile-tx-entry" 
-											onclick={() => openDetail(t.id)} 
-											onkeydown={(e) => { if (e.key === 'Enter') openDetail(t.id); }} 
-											role="button" 
+										<div
+											class="mobile-tx-entry"
+											onclick={() => openDetail(t.id)}
+											onkeydown={(e) => {
+												if (e.key === "Enter")
+													openDetail(t.id);
+											}}
+											role="button"
 											tabindex="0"
 										>
-											<div class="entry-icon {t.tipe === 'pemasukan' ? 'icon-green' : 'icon-red'}">
-												{#if t.tipe === 'pemasukan'}
-													<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-														<path d="M12 5v14M19 12l-7 7-7-7"/>
+											<div
+												class="entry-icon {t.tipe ===
+												'pemasukan'
+													? 'icon-green'
+													: 'icon-red'}"
+											>
+												{#if t.tipe === "pemasukan"}
+													<svg
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path
+															d="M12 5v14M19 12l-7 7-7-7"
+														/>
 													</svg>
 												{:else}
-													<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-														<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>
+													<svg
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path
+															d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"
+														/><line
+															x1="3"
+															y1="6"
+															x2="21"
+															y2="6"
+														/><path
+															d="M16 10a4 4 0 0 1-8 0"
+														/>
 													</svg>
 												{/if}
 											</div>
 											<div class="entry-core">
 												<div class="entry-row-top">
-													<span class="entry-merchant">{t.toko || (t.tipe === 'pemasukan' ? 'Pemasukan' : 'Transaksi')}</span>
-													<span class="entry-amount {t.tipe === 'pemasukan' ? 'color-income' : 'color-expense'}">
-														{t.tipe === 'pemasukan' ? '+' : '-'} {formatRupiah(t.total)}
+													<span class="entry-merchant"
+														>{t.toko ||
+															(t.tipe ===
+															"pemasukan"
+																? "Pemasukan"
+																: "Transaksi")}</span
+													>
+													<span
+														class="entry-amount {t.tipe ===
+														'pemasukan'
+															? 'color-income'
+															: 'color-expense'}"
+													>
+														{t.tipe === "pemasukan"
+															? "+"
+															: "-"}
+														{formatRupiah(t.total)}
 													</span>
 												</div>
 												<div class="entry-row-sub">
-													<span>{formatTgl(t.tanggal)} • {t.kategori} • {t.metode_bayar}</span>
+													<span
+														>{formatTgl(t.tanggal)} •
+														{t.kategori} • {t.metode_bayar}</span
+													>
 												</div>
 											</div>
 										</div>
 									{/each}
 								</div>
 							{:else}
-								<div class="empty-panel-text"><p>Tidak ada transaksi yang cocok.</p></div>
+								<div class="empty-panel-text">
+									<p>Tidak ada transaksi yang cocok.</p>
+								</div>
 							{/if}
 						</div>
 					{/if}
@@ -2937,26 +6851,107 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			{/if}
 		</main>
 
+		<!-- MOBILE BOTTOM NAVIGATION BAR (NATIVE APP EXPERIENCE) -->
+		<nav class="mobile-bottom-nav" aria-label="Navigasi Utama">
+			<button
+				type="button"
+				class="mob-nav-btn {activeView === 'chat' ? 'active' : ''}"
+				onclick={() => {
+					activeView = "chat";
+					if (reportSubTab !== "bulanan") {
+						reportSubTab = "bulanan";
+						loadData();
+					}
+					scrollToBottom();
+				}}
+			>
+				<div class="mob-nav-icon-wrap">
+					<svg
+						width="20"
+						height="20"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
+						<path
+							d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
+						/>
+					</svg>
+				</div>
+				<span class="mob-nav-label">Chat Asisten</span>
+			</button>
+
+			<button
+				type="button"
+				class="mob-nav-btn {activeView === 'report' ? 'active' : ''}"
+				onclick={() => (activeView = "report")}
+			>
+				<div class="mob-nav-icon-wrap">
+					<svg
+						width="20"
+						height="20"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
+						<path d="M3 3v18h18" /><path d="M18 17V9" /><path
+							d="M13 17V5"
+						/><path d="M8 17v-3" />
+					</svg>
+					{#if transaksiList.length > 0}
+						<span class="mob-nav-badge">{transaksiList.length}</span
+						>
+					{/if}
+				</div>
+				<span class="mob-nav-label">Report & Rekap</span>
+			</button>
+		</nav>
+
 		<!-- PROFILE & AKUN BOTTOM SHEET MODAL -->
 		{#if showProfileModal}
-			<div 
-				class="bottom-sheet-backdrop" 
-				onclick={() => showProfileModal = false} 
-				onkeydown={(e) => { if (e.key === 'Escape') showProfileModal = false; }} 
+			<div
+				class="bottom-sheet-backdrop"
+				onclick={() => (showProfileModal = false)}
+				onkeydown={(e) => {
+					if (e.key === "Escape") showProfileModal = false;
+				}}
 				role="presentation"
 			>
-				<div 
-					class="bottom-sheet-sheet profile-modal-sheet" 
-					onclick={(e) => e.stopPropagation()} 
-					onkeydown={(e) => e.stopPropagation()} 
-					role="dialog" 
+				<div
+					class="bottom-sheet-sheet profile-modal-sheet"
+					onclick={(e) => e.stopPropagation()}
+					onkeydown={(e) => e.stopPropagation()}
+					role="dialog"
 					tabindex="-1"
 				>
 					<div class="sheet-grabber-bar"></div>
 					<div class="sheet-header">
 						<h3 class="sheet-title">Pengaturan Akun</h3>
-						<button class="sheet-close-btn" aria-label="Tutup" onclick={() => showProfileModal = false}>
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+						<button
+							class="sheet-close-btn"
+							aria-label="Tutup"
+							onclick={() => (showProfileModal = false)}
+						>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.2"
+								><line x1="18" y1="6" x2="6" y2="18" /><line
+									x1="6"
+									y1="6"
+									x2="18"
+									y2="18"
+								/></svg
+							>
 						</button>
 					</div>
 
@@ -2966,58 +6961,93 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 								{currentUser.nama.charAt(0).toUpperCase()}
 							</div>
 							<div class="profile-user-info">
-								<h2 class="profile-name-text">{currentUser.nama}</h2>
-								<p class="profile-email-text">{currentUser.email}</p>
+								<h2 class="profile-name-text">
+									{currentUser.nama}
+								</h2>
+								<p class="profile-email-text">
+									{currentUser.email}
+								</p>
 							</div>
 						</div>
 
-						<div class="profile-tier-card {currentUser.tier === 'pro' ? 'tier-pro-box' : 'tier-free-box'}">
+						<div
+							class="profile-tier-card {currentUser.tier === 'pro'
+								? 'tier-pro-box'
+								: 'tier-free-box'}"
+						>
 							<div class="tier-card-left">
 								<div class="tier-icon-circle">
-									{currentUser.tier === 'pro' ? '⭐' : '🌱'}
+									{currentUser.tier === "pro" ? "⭐" : "🌱"}
 								</div>
 								<div class="tier-meta-text">
 									<div class="tier-title-row">
-										<span class="tier-title-text">{currentUser.tier === 'pro' ? 'CatatAi PRO (Aktif)' : 'Paket Gratis (Free)'}</span>
-										<span class="tier-status-pill">{currentUser.tier === 'pro' ? 'Unlimited' : '5 Pesan / Hari'}</span>
+										<span class="tier-title-text"
+											>{currentUser.tier === "pro"
+												? "CatatAi PRO (Aktif)"
+												: "Paket Gratis (Free)"}</span
+										>
+										<span class="tier-status-pill"
+											>{currentUser.tier === "pro"
+												? "Unlimited"
+												: "5 Pesan / Hari"}</span
+										>
 									</div>
 									<p class="tier-desc-text">
-										{currentUser.tier === 'pro' 
-											? 'Akses Chat Asisten & Scan Nota Tanpa Batas.' 
+										{currentUser.tier === "pro"
+											? "Akses Chat Asisten & Scan Nota Tanpa Batas."
 											: `Sisa kuota hari ini: ${currentUser.sisa_kuota ?? 5} dari 5 pesan gratis.`}
 									</p>
 								</div>
 							</div>
-							<button 
-								type="button" 
-								class="btn-tier-action {currentUser.tier === 'pro' ? 'btn-tier-manage' : 'btn-tier-upgrade'}"
-								onclick={() => { showProfileModal = false; showUpgradeModal = true; }}
+							<button
+								type="button"
+								class="btn-tier-action {currentUser.tier ===
+								'pro'
+									? 'btn-tier-manage'
+									: 'btn-tier-upgrade'}"
+								onclick={() => {
+									showProfileModal = false;
+									showUpgradeModal = true;
+								}}
 							>
-								{currentUser.tier === 'pro' ? 'Kelola Paket' : 'Upgrade PRO ⭐'}
+								{currentUser.tier === "pro"
+									? "Kelola Paket"
+									: "Upgrade PRO ⭐"}
 							</button>
 						</div>
 
 						<div class="profile-stats-card">
 							<div class="stat-mini-col">
 								<span class="sm-lbl">Transaksi Bulan Ini</span>
-								<span class="sm-val">{rekap.total_transaksi}</span>
+								<span class="sm-val"
+									>{rekap.total_transaksi}</span
+								>
 							</div>
 							<div class="stat-divider-line"></div>
 							<div class="stat-mini-col">
 								<span class="sm-lbl">Net Saldo Bulan Ini</span>
-								<span class="sm-val {rekap.saldo_bersih >= 0 ? 'color-income' : 'color-expense'}">
+								<span
+									class="sm-val {rekap.saldo_bersih >= 0
+										? 'color-income'
+										: 'color-expense'}"
+								>
 									{formatRupiah(rekap.saldo_bersih)}
 								</span>
 							</div>
 						</div>
 
-						{#if currentUser?.role === 'admin' || currentUser?.email === 'miftahdev7@gmail.com'}
+						{#if currentUser?.role === "admin" || currentUser?.email === "miftahdev7@gmail.com"}
 							<a href="/admin" class="btn-admin-profile-menu">
 								<div class="adm-menu-left">
 									<span class="adm-crown-badge">👑</span>
 									<div class="adm-menu-text">
-										<strong>Panel Admin Manajemen Pengguna</strong>
-										<span>Ubah status pengguna jadi PRO & reset kuota</span>
+										<strong
+											>Panel Admin Manajemen Pengguna</strong
+										>
+										<span
+											>Ubah status pengguna jadi PRO &
+											reset kuota</span
+										>
 									</div>
 								</div>
 								<span class="adm-arrow-right">→</span>
@@ -3025,28 +7055,75 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						{/if}
 
 						{#if !isAppStandalone}
-							<button class="btn-install-pwa-sheet" onclick={triggerPWAInstall}>
-								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-									<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
+							<button
+								class="btn-install-pwa-sheet"
+								onclick={triggerPWAInstall}
+							>
+								<svg
+									width="18"
+									height="18"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<rect
+										x="5"
+										y="2"
+										width="14"
+										height="20"
+										rx="2"
+										ry="2"
+									/><line
+										x1="12"
+										y1="18"
+										x2="12.01"
+										y2="18"
+									/>
 								</svg>
 								<span>Pasang CatatAi ke Layar Utama (PWA)</span>
 							</button>
 						{:else}
 							<div class="installed-pwa-badge">
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-									<polyline points="20 6 9 17 4 12"/>
+								<svg
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.5"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<polyline points="20 6 9 17 4 12" />
 								</svg>
-								<span>CatatAi terpasang di perangkat Anda (PWA)</span>
+								<span
+									>CatatAi terpasang di perangkat Anda (PWA)</span
+								>
 							</div>
 						{/if}
-		
-
-
-
 
 						<button class="btn-logout-full" onclick={handleLogout}>
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path
+									d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"
+								/><polyline points="16 17 21 12 16 7" /><line
+									x1="21"
+									y1="12"
+									x2="9"
+									y2="12"
+								/>
 							</svg>
 							<span>Keluar dari Akun</span>
 						</button>
@@ -3055,59 +7132,100 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			</div>
 		{/if}
 
-		
 		<!-- ==============================================
 		     MODAL UPGRADE PRO / FREEMIUM SELECTOR (STANDALONE)
 		     ============================================== -->
 		{#if showUpgradeModal}
-			<div 
-				class="bottom-sheet-backdrop" 
-				onclick={() => showUpgradeModal = false} 
-				onkeydown={(e) => { if (e.key === 'Escape') showUpgradeModal = false; }} 
+			<div
+				class="bottom-sheet-backdrop"
+				onclick={() => (showUpgradeModal = false)}
+				onkeydown={(e) => {
+					if (e.key === "Escape") showUpgradeModal = false;
+				}}
 				role="presentation"
 			>
-				<div 
-					class="bottom-sheet-sheet upgrade-pro-sheet" 
-					onclick={(e) => e.stopPropagation()} 
-					onkeydown={(e) => e.stopPropagation()} 
-					role="dialog" 
+				<div
+					class="bottom-sheet-sheet upgrade-pro-sheet"
+					onclick={(e) => e.stopPropagation()}
+					onkeydown={(e) => e.stopPropagation()}
+					role="dialog"
 					tabindex="-1"
 				>
 					<div class="sheet-grabber-bar"></div>
 					<div class="sheet-header">
 						<h3 class="sheet-title">Pilihan Paket CatatAi</h3>
-						<button class="sheet-close-btn" aria-label="Tutup" onclick={() => showUpgradeModal = false}>
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+						<button
+							class="sheet-close-btn"
+							aria-label="Tutup"
+							onclick={() => (showUpgradeModal = false)}
+						>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.2"
+								><line x1="18" y1="6" x2="6" y2="18" /><line
+									x1="6"
+									y1="6"
+									x2="18"
+									y2="18"
+								/></svg
+							>
 						</button>
 					</div>
 
 					<div class="upgrade-sheet-body">
 						<div class="upgrade-hero-card">
 							<div class="upgrade-crown-icon">👑</div>
-							<h2 class="upgrade-hero-title">Buka Akses Tanpa Batas</h2>
-							<p class="upgrade-hero-sub">Pencatatan keuangan cerdas, scan nota AI, dan rekap otomatis tanpa limit harian.</p>
+							<h2 class="upgrade-hero-title">
+								Buka Akses Tanpa Batas
+							</h2>
+							<p class="upgrade-hero-sub">
+								Pencatatan keuangan cerdas, scan nota AI, dan
+								rekap otomatis tanpa limit harian.
+							</p>
 						</div>
 
 						<!-- PERBANDINGAN TIER -->
 						<div class="plans-grid-row">
 							<!-- PLAN 1: GRATIS -->
-							<div class="plan-card {currentUser.tier !== 'pro' ? 'plan-current' : ''}">
+							<div
+								class="plan-card {currentUser.tier !== 'pro'
+									? 'plan-current'
+									: ''}"
+							>
 								<div class="plan-header">
 									<div class="plan-name">Versi Gratis</div>
-									<div class="plan-price">Rp 0 <span>/ selamanya</span></div>
+									<div class="plan-price">
+										Rp 0 <span>/ selamanya</span>
+									</div>
 								</div>
 								<ul class="plan-features-list">
-									<li><span class="feat-bullet">⏳</span> 5 pesan chat per hari</li>
-									<li><span class="feat-bullet">🔄</span> Reset kuota setiap tengah malam</li>
-									<li><span class="feat-bullet">📊</span> Rekap keuangan bulanan</li>
+									<li>
+										<span class="feat-bullet">⏳</span> 5 pesan
+										chat per hari
+									</li>
+									<li>
+										<span class="feat-bullet">🔄</span> Reset
+										kuota setiap tengah malam
+									</li>
+									<li>
+										<span class="feat-bullet">📊</span> Rekap
+										keuangan bulanan
+									</li>
 								</ul>
-								{#if currentUser.tier !== 'pro'}
-									<div class="plan-badge-curr">Paket Anda Saat Ini ({currentUser.sisa_kuota ?? 5}/5 pesan)</div>
+								{#if currentUser.tier !== "pro"}
+									<div class="plan-badge-curr">
+										Paket Anda Saat Ini ({currentUser.sisa_kuota ??
+											5}/5 pesan)
+									</div>
 								{:else}
-									<button 
+									<button
 										type="button"
-										class="btn-plan-toggle btn-plan-free" 
-										onclick={() => toggleProTier('free')}
+										class="btn-plan-toggle btn-plan-free"
+										onclick={() => toggleProTier("free")}
 										disabled={upgradeLoading}
 									>
 										Beralih ke Free (Demo Limit)
@@ -3116,43 +7234,89 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							</div>
 
 							<!-- PLAN 2: PRO UNLIMITED -->
-							<div class="plan-card plan-pro-highlight {currentUser.tier === 'pro' ? 'plan-current' : ''}">
-								<div class="pro-popular-ribbon">PALING POPULER</div>
+							<div
+								class="plan-card plan-pro-highlight {currentUser.tier ===
+								'pro'
+									? 'plan-current'
+									: ''}"
+							>
+								<div class="pro-popular-ribbon">
+									PALING POPULER
+								</div>
 								<div class="plan-header">
 									<div class="plan-name">Versi PRO ⭐</div>
-									<div class="plan-price">Unlimited <span>/ selamanya</span></div>
+									<div class="plan-price">
+										Unlimited <span>/ selamanya</span>
+									</div>
 								</div>
 								<ul class="plan-features-list">
-									<li><span class="feat-bullet">⚡</span> <strong>Chat Tanpa Batas (Unlimited)</strong></li>
-									<li><span class="feat-bullet">📸</span> <strong>Scan Nota AI Tanpa Batas</strong></li>
-									<li><span class="feat-bullet">📑</span> Export CSV & Rekap Lengkap</li>
-									<li><span class="feat-bullet">🔒</span> Data Terisolasi & Pribadi</li>
+									<li>
+										<span class="feat-bullet">⚡</span>
+										<strong
+											>Chat Tanpa Batas (Unlimited)</strong
+										>
+									</li>
+									<li>
+										<span class="feat-bullet">📸</span>
+										<strong>Scan Nota AI Tanpa Batas</strong
+										>
+									</li>
+									<li>
+										<span class="feat-bullet">📑</span> Export
+										CSV & Rekap Lengkap
+									</li>
+									<li>
+										<span class="feat-bullet">🔒</span> Data
+										Terisolasi & Pribadi
+									</li>
 								</ul>
 
-								{#if currentUser?.tier === 'pro'}
-									<div class="plan-badge-curr pro-active">⭐ Paket Anda Aktif (Unlimited)</div>
+								{#if currentUser?.tier === "pro"}
+									<div class="plan-badge-curr pro-active">
+										⭐ Paket Anda Aktif (Unlimited)
+									</div>
 								{:else}
-									<a 
-										href="https://wa.me/6281225020952?text={encodeURIComponent('Halo Admin Miftah, saya ingin upgrade akun CatatAi saya ke Versi PRO Unlimited.\n\nNama: ' + (currentUser?.nama || '') + '\nEmail: ' + (currentUser?.email || ''))}" 
-										target="_blank" 
-										rel="noopener noreferrer" 
+									<a
+										href="https://wa.me/6281225020952?text={encodeURIComponent(
+											'Halo Admin Miftah, saya ingin upgrade akun CatatAi saya ke Versi PRO Unlimited.\n\nNama: ' +
+												(currentUser?.nama || '') +
+												'\nEmail: ' +
+												(currentUser?.email || ''),
+										)}"
+										target="_blank"
+										rel="noopener noreferrer"
 										class="btn-plan-toggle btn-plan-pro-wa"
 									>
-										<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-											<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+										<svg
+											width="18"
+											height="18"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2.2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<path
+												d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
+											/>
 										</svg>
-										<span>Hubungi WA Admin (081225020952) 💬</span>
+										<span
+											>Hubungi WA Admin (081225020952) 💬</span
+										>
 									</a>
 
-									{#if currentUser?.role === 'admin' || currentUser?.email === 'miftahdev7@gmail.com'}
+									{#if currentUser?.role === "admin" || currentUser?.email === "miftahdev7@gmail.com"}
 										<div class="admin-quick-dev-box">
-											<button 
-												type="button" 
+											<button
+												type="button"
 												class="btn-admin-instant-act"
-												onclick={() => toggleProTier('pro')}
+												onclick={() =>
+													toggleProTier("pro")}
 												disabled={upgradeLoading}
 											>
-												👑 [Mode Admin] Aktifkan Akun Sendiri Langsung
+												👑 [Mode Admin] Aktifkan Akun
+												Sendiri Langsung
 											</button>
 										</div>
 									{/if}
@@ -3161,8 +7325,26 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						</div>
 
 						<div class="upgrade-note-box">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-							<span>Untuk aktivasi PRO, silakan klik tombol WA di atas atau hubungi <strong>081225020952</strong>. Admin Miftah akan langsung mengubah status akun Anda menjadi PRO Unlimited.</span>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.2"
+								><circle cx="12" cy="12" r="10" /><line
+									x1="12"
+									y1="16"
+									x2="12"
+									y2="12"
+								/><line x1="12" y1="8" x2="12.01" y2="8" /></svg
+							>
+							<span
+								>Untuk aktivasi PRO, silakan klik tombol WA di
+								atas atau hubungi <strong>081225020952</strong>.
+								Admin Miftah akan langsung mengubah status akun
+								Anda menjadi PRO Unlimited.</span
+							>
 						</div>
 					</div>
 				</div>
@@ -3171,25 +7353,44 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 		<!-- BOTTOM SHEET MODAL (MANUAL INPUT) -->
 		{#if showModalTambah}
-			<div 
-				class="bottom-sheet-backdrop" 
-				onclick={() => showModalTambah = false} 
-				onkeydown={(e) => { if (e.key === 'Escape') showModalTambah = false; }} 
+			<div
+				class="bottom-sheet-backdrop"
+				onclick={() => (showModalTambah = false)}
+				onkeydown={(e) => {
+					if (e.key === "Escape") showModalTambah = false;
+				}}
 				role="presentation"
 			>
-				<div 
-					class="bottom-sheet-sheet" 
-					onclick={(e) => e.stopPropagation()} 
-					onkeydown={(e) => e.stopPropagation()} 
-					role="dialog" 
+				<div
+					class="bottom-sheet-sheet"
+					onclick={(e) => e.stopPropagation()}
+					onkeydown={(e) => e.stopPropagation()}
+					role="dialog"
 					tabindex="-1"
 				>
 					<div class="sheet-grabber-bar"></div>
-					
+
 					<div class="sheet-header">
 						<h3 class="sheet-title">Catat Transaksi Manual</h3>
-						<button class="sheet-close-btn" aria-label="Tutup" onclick={() => showModalTambah = false}>
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+						<button
+							class="sheet-close-btn"
+							aria-label="Tutup"
+							onclick={() => (showModalTambah = false)}
+						>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.2"
+								><line x1="18" y1="6" x2="6" y2="18" /><line
+									x1="6"
+									y1="6"
+									x2="18"
+									y2="18"
+								/></svg
+							>
 						</button>
 					</div>
 
@@ -3197,36 +7398,62 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						<div class="sheet-form-grid">
 							<div class="sheet-field">
 								<label for="inp-sheet-type">Tipe</label>
-								<select id="inp-sheet-type" class="native-sheet-input" bind:value={form.tipe}>
-									<option value="pengeluaran">Pengeluaran (Belanja/Biaya)</option>
-									<option value="pemasukan">Pemasukan (Gaji/Pendapatan)</option>
+								<select
+									id="inp-sheet-type"
+									class="native-sheet-input"
+									bind:value={form.tipe}
+								>
+									<option value="pengeluaran"
+										>Pengeluaran (Belanja/Biaya)</option
+									>
+									<option value="pemasukan"
+										>Pemasukan (Gaji/Pendapatan)</option
+									>
 								</select>
 							</div>
 
 							<div class="sheet-field">
-								<label for="inp-sheet-store">{form.tipe === 'pemasukan' ? 'Sumber Uang / Kantor' : 'Nama Toko / Tempat'}</label>
-								<input 
-									id="inp-sheet-store" 
-									type="text" 
-									class="native-sheet-input" 
-									placeholder="Contoh: Kantor, Kopi Kenangan, SPBU" 
-									bind:value={form.toko} 
+								<label for="inp-sheet-store"
+									>{form.tipe === "pemasukan"
+										? "Sumber Uang / Kantor"
+										: "Nama Toko / Tempat"}</label
+								>
+								<input
+									id="inp-sheet-store"
+									type="text"
+									class="native-sheet-input"
+									placeholder="Contoh: Kantor, Kopi Kenangan, SPBU"
+									bind:value={form.toko}
 								/>
 							</div>
 
 							<div class="sheet-field">
 								<label for="inp-sheet-date">Tanggal</label>
-								<input id="inp-sheet-date" type="date" class="native-sheet-input" bind:value={form.tanggal} />
+								<input
+									id="inp-sheet-date"
+									type="date"
+									class="native-sheet-input"
+									bind:value={form.tanggal}
+								/>
 							</div>
 
 							<div class="sheet-field">
 								<label for="inp-sheet-time">Jam</label>
-								<input id="inp-sheet-time" type="time" class="native-sheet-input" bind:value={form.waktu} />
+								<input
+									id="inp-sheet-time"
+									type="time"
+									class="native-sheet-input"
+									bind:value={form.waktu}
+								/>
 							</div>
 
 							<div class="sheet-field">
 								<label for="inp-sheet-cat">Kategori</label>
-								<select id="inp-sheet-cat" class="native-sheet-input" bind:value={form.kategori}>
+								<select
+									id="inp-sheet-cat"
+									class="native-sheet-input"
+									bind:value={form.kategori}
+								>
 									{#each KATEGORI_OPTIONS as k}
 										<option value={k}>{k}</option>
 									{/each}
@@ -3234,11 +7461,42 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							</div>
 
 							<div class="sheet-field">
-								<label for="inp-sheet-pay">Metode Bayar</label>
-								<select id="inp-sheet-pay" class="native-sheet-input" bind:value={form.metode_bayar}>
-									{#each METODE_OPTIONS as m}
-										<option value={m}>{m}</option>
-									{/each}
+								<label for="inp-sheet-pay"
+									>Pilih Dompet / Rekening</label
+								>
+								<select
+									id="inp-sheet-pay"
+									class="native-sheet-input"
+									bind:value={form.dompet}
+									onchange={(e) => {
+										const sel = dompetList.find(
+											(d) =>
+												d.nama ===
+												e.currentTarget.value,
+										);
+										if (sel) {
+											form.dompet_id = sel.id;
+											form.metode_bayar = sel.nama;
+										} else {
+											form.metode_bayar =
+												e.currentTarget.value;
+										}
+									}}
+								>
+									{#if dompetList.length > 0}
+										{#each dompetList as d}
+											<option value={d.nama}>
+												{getDompetIcon(d.tipe)}
+												{d.nama} ({formatRupiah(
+													d.saldo_sekarang,
+												)})
+											</option>
+										{/each}
+									{:else}
+										{#each METODE_OPTIONS as m}
+											<option value={m}>{m}</option>
+										{/each}
+									{/if}
 								</select>
 							</div>
 						</div>
@@ -3246,19 +7504,64 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						<!-- Rincian Item (Opsional) -->
 						<div class="sheet-divider mt-3">
 							<div class="sheet-divider-row">
-								<span class="sub-sheet-heading">Rincian Barang</span>
-								<button class="btn-sheet-mini" onclick={addItem}>+ Tambah Baris</button>
+								<span class="sub-sheet-heading"
+									>Rincian Barang</span
+								>
+								<button class="btn-sheet-mini" onclick={addItem}
+									>+ Tambah Baris</button
+								>
 							</div>
 
 							{#if form.items.length > 0}
 								<div class="sheet-items-stack">
 									{#each form.items as item, idx}
 										<div class="sheet-item-row">
-											<input type="text" placeholder="Nama item" class="native-sheet-input flex-2" bind:value={item.nama_barang} />
-											<input type="number" min="1" placeholder="Qty" class="native-sheet-input flex-1" bind:value={item.qty} oninput={hitungTotal} />
-											<input type="number" min="0" placeholder="Harga" class="native-sheet-input flex-1" bind:value={item.harga_satuan} oninput={hitungTotal} />
-											<button class="btn-sheet-del" aria-label="Hapus baris item" onclick={() => removeItem(idx)}>
-												<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+											<input
+												type="text"
+												placeholder="Nama item"
+												class="native-sheet-input flex-2"
+												bind:value={item.nama_barang}
+											/>
+											<input
+												type="number"
+												min="1"
+												placeholder="Qty"
+												class="native-sheet-input flex-1"
+												bind:value={item.qty}
+												oninput={hitungTotal}
+											/>
+											<input
+												type="number"
+												min="0"
+												placeholder="Harga"
+												class="native-sheet-input flex-1"
+												bind:value={item.harga_satuan}
+												oninput={hitungTotal}
+											/>
+											<button
+												class="btn-sheet-del"
+												aria-label="Hapus baris item"
+												onclick={() => removeItem(idx)}
+											>
+												<svg
+													width="13"
+													height="13"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2.5"
+													><line
+														x1="18"
+														y1="6"
+														x2="6"
+														y2="18"
+													/><line
+														x1="6"
+														y1="6"
+														x2="18"
+														y2="18"
+													/></svg
+												>
 											</button>
 										</div>
 									{/each}
@@ -3275,29 +7578,59 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							<div class="calc-inputs-row">
 								<div class="calc-col">
 									<label for="inp-sheet-tax">Pajak:</label>
-									<input id="inp-sheet-tax" type="number" class="native-sheet-input-sm" bind:value={form.pajak} oninput={hitungTotal} />
+									<input
+										id="inp-sheet-tax"
+										type="number"
+										class="native-sheet-input-sm"
+										bind:value={form.pajak}
+										oninput={hitungTotal}
+									/>
 								</div>
 								<div class="calc-col">
 									<label for="inp-sheet-disc">Diskon:</label>
-									<input id="inp-sheet-disc" type="number" class="native-sheet-input-sm" bind:value={form.diskon} oninput={hitungTotal} />
+									<input
+										id="inp-sheet-disc"
+										type="number"
+										class="native-sheet-input-sm"
+										bind:value={form.diskon}
+										oninput={hitungTotal}
+									/>
 								</div>
 							</div>
 							<div class="calc-grand-row">
 								<span class="tot-title">Grand Total:</span>
-								<input type="number" class="native-grand-input" bind:value={form.total} />
+								<input
+									type="number"
+									class="native-grand-input"
+									bind:value={form.total}
+								/>
 							</div>
 						</div>
 
 						<div class="sheet-field mt-3">
 							<label for="inp-sheet-note">Catatan Tambahan</label>
-							<input id="inp-sheet-note" type="text" class="native-sheet-input" placeholder="Keterangan..." bind:value={form.catatan} />
+							<input
+								id="inp-sheet-note"
+								type="text"
+								class="native-sheet-input"
+								placeholder="Keterangan..."
+								bind:value={form.catatan}
+							/>
 						</div>
 					</div>
 
 					<div class="sheet-sticky-footer">
-						<button class="btn-sheet-cancel" onclick={() => showModalTambah = false}>Batal</button>
-						<button class="btn-sheet-submit" onclick={simpanTransaksi} disabled={loading}>
-							{loading ? 'Menyimpan...' : 'Simpan Transaksi'}
+						<button
+							class="btn-sheet-cancel"
+							onclick={() => (showModalTambah = false)}
+							>Batal</button
+						>
+						<button
+							class="btn-sheet-submit"
+							onclick={simpanTransaksi}
+							disabled={loading}
+						>
+							{loading ? "Menyimpan..." : "Simpan Transaksi"}
 						</button>
 					</div>
 				</div>
@@ -3306,66 +7639,164 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 		<!-- BOTTOM SHEET MODAL (DETAIL & FOTO) -->
 		{#if showModalDetail}
-			<div 
-				class="bottom-sheet-backdrop" 
-				onclick={() => showModalDetail = false} 
-				onkeydown={(e) => { if (e.key === 'Escape') showModalDetail = false; }} 
+			<div
+				class="bottom-sheet-backdrop"
+				onclick={() => (showModalDetail = false)}
+				onkeydown={(e) => {
+					if (e.key === "Escape") showModalDetail = false;
+				}}
 				role="presentation"
 			>
-				<div 
-					class="bottom-sheet-sheet" 
-					onclick={(e) => e.stopPropagation()} 
-					onkeydown={(e) => e.stopPropagation()} 
-					role="dialog" 
+				<div
+					class="bottom-sheet-sheet"
+					onclick={(e) => e.stopPropagation()}
+					onkeydown={(e) => e.stopPropagation()}
+					role="dialog"
 					tabindex="-1"
 				>
 					<div class="sheet-grabber-bar"></div>
 
 					<div class="sheet-header">
 						<h3 class="sheet-title">Rincian Transaksi</h3>
-						<button class="sheet-close-btn" aria-label="Tutup" onclick={() => showModalDetail = false}>
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+						<button
+							class="sheet-close-btn"
+							aria-label="Tutup"
+							onclick={() => (showModalDetail = false)}
+						>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.2"
+								><line x1="18" y1="6" x2="6" y2="18" /><line
+									x1="6"
+									y1="6"
+									x2="18"
+									y2="18"
+								/></svg
+							>
 						</button>
 					</div>
 
 					{#if detailLoading}
-						<div class="empty-panel-text"><p>Memuat rincian...</p></div>
+						<div class="empty-panel-text">
+							<p>Memuat rincian...</p>
+						</div>
 					{:else if detailData}
 						<div class="sheet-body-scroll">
 							{#if detailData.gambar_url}
 								<div class="detail-photo-card">
-									<img src={detailData.gambar_url} alt="Nota" class="detail-img-full" />
+									<img
+										src={detailData.gambar_url}
+										alt="Nota"
+										class="detail-img-full"
+									/>
 								</div>
 							{/if}
 
 							<div class="detail-tags-cluster">
-								<span class="pill-type {detailData.tipe === 'pemasukan' ? 'pill-income' : 'pill-expense'}">
+								<span
+									class="pill-type {detailData.tipe ===
+									'pemasukan'
+										? 'pill-income'
+										: 'pill-expense'}"
+								>
 									{detailData.tipe.toUpperCase()}
 								</span>
-								<span class="col-tag">{detailData.kategori}</span>
+								<span class="col-tag"
+									>{detailData.kategori}</span
+								>
 								<span class="col-tag method-tag">
-									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+									<svg
+										width="12"
+										height="12"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										><rect
+											x="1"
+											y="4"
+											width="22"
+											height="16"
+											rx="2"
+											ry="2"
+										/><line
+											x1="1"
+											y1="10"
+											x2="23"
+											y2="10"
+										/></svg
+									>
 									<span>{detailData.metode_bayar}</span>
 								</span>
 							</div>
 
-							<h2 class="detail-hero-store">{detailData.toko || 'Transaksi'}</h2>
+							<h2 class="detail-hero-store">
+								{detailData.toko || "Transaksi"}
+							</h2>
 							<p class="detail-hero-time">
-								<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-								<span>{formatTgl(detailData.tanggal)} • {detailData.waktu?.slice(0, 5) || '-'}</span>
+								<svg
+									width="13"
+									height="13"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									><rect
+										x="3"
+										y="4"
+										width="18"
+										height="18"
+										rx="2"
+										ry="2"
+									/><line
+										x1="16"
+										y1="2"
+										x2="16"
+										y2="6"
+									/><line x1="8" y1="2" x2="8" y2="6" /><line
+										x1="3"
+										y1="10"
+										x2="21"
+										y2="10"
+									/></svg
+								>
+								<span
+									>{formatTgl(detailData.tanggal)} • {detailData.waktu?.slice(
+										0,
+										5,
+									) || "-"}</span
+								>
 							</p>
 
 							{#if detailData.catatan}
-								<div class="detail-callout-note">"{detailData.catatan}"</div>
+								<div class="detail-callout-note">
+									"{detailData.catatan}"
+								</div>
 							{/if}
 
 							{#if detailData.items && detailData.items.length > 0}
-								<h4 class="sub-sheet-heading mt-3">Barang / Item:</h4>
+								<h4 class="sub-sheet-heading mt-3">
+									Barang / Item:
+								</h4>
 								<div class="detail-items-stack">
 									{#each detailData.items as itm}
 										<div class="detail-item-line">
-											<span>{itm.qty}x {itm.nama_barang}</span>
-											<span class="entry-sub">{formatRupiah(itm.subtotal)}</span>
+											<span
+												>{itm.qty}x {itm.nama_barang}</span
+											>
+											<span class="entry-sub"
+												>{formatRupiah(
+													itm.subtotal,
+												)}</span
+											>
 										</div>
 									{/each}
 								</div>
@@ -3374,39 +7805,510 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							<div class="sheet-calc-box mt-3">
 								<div class="calc-line-row">
 									<span>Subtotal:</span>
-									<span>{formatRupiah(detailData.subtotal)}</span>
+									<span
+										>{formatRupiah(
+											detailData.subtotal,
+										)}</span
+									>
 								</div>
 								{#if detailData.pajak > 0}
 									<div class="calc-line-row">
 										<span>Pajak (PPN):</span>
-										<span>{formatRupiah(detailData.pajak)}</span>
+										<span
+											>{formatRupiah(
+												detailData.pajak,
+											)}</span
+										>
 									</div>
 								{/if}
 								{#if detailData.diskon > 0}
 									<div class="calc-line-row">
 										<span>Diskon:</span>
-										<span>-{formatRupiah(detailData.diskon)}</span>
+										<span
+											>-{formatRupiah(
+												detailData.diskon,
+											)}</span
+										>
 									</div>
 								{/if}
 								<div class="calc-grand-row">
 									<span class="tot-title">Grand Total:</span>
-									<span class="tot-val {detailData.tipe === 'pemasukan' ? 'color-income' : 'color-expense'}">
-										{detailData.tipe === 'pemasukan' ? '+' : '-'} {formatRupiah(detailData.total)}
+									<span
+										class="tot-val {detailData.tipe ===
+										'pemasukan'
+											? 'color-income'
+											: 'color-expense'}"
+									>
+										{detailData.tipe === "pemasukan"
+											? "+"
+											: "-"}
+										{formatRupiah(detailData.total)}
 									</span>
 								</div>
 							</div>
 						</div>
 
 						<div class="sheet-sticky-footer">
-							<button class="btn-sheet-danger" onclick={() => deleteTransaksi(detailData.id)}>
-								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-									<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
+							<button
+								class="btn-sheet-danger"
+								onclick={() => deleteTransaksi(detailData.id)}
+							>
+								<svg
+									width="14"
+									height="14"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<polyline points="3 6 5 6 21 6" /><path
+										d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+									/><line
+										x1="10"
+										y1="11"
+										x2="10"
+										y2="17"
+									/><line x1="14" y1="11" x2="14" y2="17" />
 								</svg>
 								<span>Hapus</span>
 							</button>
-							<button class="btn-sheet-submit" onclick={() => showModalDetail = false}>Tutup</button>
+							<button
+								class="btn-sheet-submit"
+								onclick={() => (showModalDetail = false)}
+								>Tutup</button
+							>
 						</div>
 					{/if}
+				</div>
+			</div>
+		{/if}
+
+		<!-- BOTTOM SHEET: KELOLA & TAMBAH/EDIT DOMPET -->
+		{#if isDompetSheetOpen}
+			<div
+				class="bottom-sheet-backdrop"
+				onclick={() => (isDompetSheetOpen = false)}
+				onkeydown={(e) => {
+					if (e.key === "Escape") isDompetSheetOpen = false;
+				}}
+				role="presentation"
+			>
+				<div
+					class="bottom-sheet-sheet dompet-modal-sheet"
+					onclick={(e) => e.stopPropagation()}
+					onkeydown={(e) => e.stopPropagation()}
+					role="dialog"
+					tabindex="-1"
+				>
+					<div class="sheet-grabber-bar"></div>
+					<div class="sheet-header">
+						<div class="dompet-sheet-title-group">
+							<h3 class="sheet-title">
+								{isEditingDompet
+									? "Edit Dompet / Rekening"
+									: "Tambah Dompet Baru"}
+							</h3>
+							<span class="sheet-subtitle"
+								>Kelola kantong uang, rekening bank, & e-wallet</span
+							>
+						</div>
+						<button
+							class="sheet-close-btn"
+							aria-label="Tutup"
+							onclick={() => (isDompetSheetOpen = false)}
+						>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.2"
+								><line x1="18" y1="6" x2="6" y2="18" /><line
+									x1="6"
+									y1="6"
+									x2="18"
+									y2="18"
+								/></svg
+							>
+						</button>
+					</div>
+
+					<div class="sheet-body-scroll">
+						<!-- Preview Kartu Dompet Real-time -->
+						<div
+							class="dompet-card-preview"
+							style="background: {dompetForm.warna || '#2563eb'};"
+						>
+							<div class="dcp-top">
+								<span class="dcp-icon"
+									>{getDompetIcon(dompetForm.tipe)}</span
+								>
+								<span class="dcp-type-badge"
+									>{dompetForm.tipe?.toUpperCase()}</span
+								>
+							</div>
+							<div class="dcp-name">
+								{dompetForm.nama || "Nama Dompet"}
+							</div>
+							<div class="dcp-balance">
+								<span class="dcp-bal-lbl">Saldo Awal</span>
+								<span class="dcp-bal-val"
+									>{formatRupiah(dompetForm.saldo_awal)}</span
+								>
+							</div>
+							{#if dompetForm.nomor_rekening}
+								<div class="dcp-acc">
+									{dompetForm.nomor_rekening}
+								</div>
+							{/if}
+						</div>
+
+						<div class="sheet-form-grid mt-3">
+							<div class="sheet-field full-width">
+								<label for="inp-dompet-nama"
+									>Nama Dompet / Rekening</label
+								>
+								<input
+									id="inp-dompet-nama"
+									type="text"
+									class="native-sheet-input"
+									placeholder="Contoh: BCA Tabungan, GoPay, Kantong Jago, Uang Fisik"
+									bind:value={dompetForm.nama}
+								/>
+							</div>
+
+							<div class="sheet-field">
+								<label for="inp-dompet-tipe">Tipe Dompet</label>
+								<select
+									id="inp-dompet-tipe"
+									class="native-sheet-input"
+									bind:value={dompetForm.tipe}
+								>
+									<option value="bank"
+										>🏦 Rekening Bank (BCA, Mandiri, BRI,
+										dll)</option
+									>
+									<option value="ewallet"
+										>📱 E-Wallet (GoPay, OVO, Dana,
+										ShopeePay)</option
+									>
+									<option value="cash"
+										>💵 Uang Tunai / Cash Fisik</option
+									>
+									<option value="lainnya"
+										>💳 Lainnya / Kartu Kredit / Investasi</option
+									>
+								</select>
+							</div>
+
+							<div class="sheet-field">
+								<label for="inp-dompet-saldo"
+									>Saldo Awal (Rp)</label
+								>
+								<input
+									id="inp-dompet-saldo"
+									type="number"
+									min="0"
+									class="native-sheet-input"
+									placeholder="0"
+									bind:value={dompetForm.saldo_awal}
+								/>
+							</div>
+
+							<div class="sheet-field full-width">
+								<label for="inp-dompet-color-custom"
+									>Warna Kartu</label
+								>
+								<div class="color-preset-picker">
+									{#each DOMPET_WARNA_PRESETS as p}
+										<button
+											type="button"
+											class="color-dot {dompetForm.warna ===
+											p.hex
+												? 'selected-color'
+												: ''}"
+											style="background: {p.hex};"
+											onclick={() =>
+												(dompetForm.warna = p.hex)}
+											title={p.name}
+										>
+											{#if dompetForm.warna === p.hex}
+												<svg
+													width="12"
+													height="12"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="#fff"
+													stroke-width="3"
+													><polyline
+														points="20 6 9 17 4 12"
+													/></svg
+												>
+											{/if}
+										</button>
+									{/each}
+									<input
+										id="inp-dompet-color-custom"
+										type="color"
+										class="color-native-input"
+										bind:value={dompetForm.warna}
+										title="Pilih Warna Kustom"
+									/>
+								</div>
+							</div>
+
+							<div class="sheet-field full-width">
+								<label for="inp-dompet-rek"
+									>Nomor Rekening / No. HP (Opsional)</label
+								>
+								<input
+									id="inp-dompet-rek"
+									type="text"
+									class="native-sheet-input"
+									placeholder="Contoh: 1234567890 / 08123456789"
+									bind:value={dompetForm.nomor_rekening}
+								/>
+							</div>
+
+							<div class="sheet-field full-width">
+								<label for="inp-dompet-cat"
+									>Catatan (Opsional)</label
+								>
+								<input
+									id="inp-dompet-cat"
+									type="text"
+									class="native-sheet-input"
+									placeholder="Keterangan dompet ini..."
+									bind:value={dompetForm.catatan}
+								/>
+							</div>
+						</div>
+					</div>
+
+					<div class="sheet-sticky-footer">
+						{#if isEditingDompet}
+							<button
+								type="button"
+								class="btn-sheet-danger"
+								onclick={() =>
+									handleDeleteDompet(dompetForm.id)}
+							>
+								Hapus
+							</button>
+						{/if}
+						<button
+							type="button"
+							class="btn-sheet-cancel"
+							onclick={() => (isDompetSheetOpen = false)}
+						>
+							Batal
+						</button>
+						<button
+							type="button"
+							class="btn-sheet-submit"
+							onclick={handleSaveDompet}
+							disabled={dompetLoading}
+						>
+							{dompetLoading
+								? "Menyimpan..."
+								: isEditingDompet
+									? "Simpan Perubahan"
+									: "Tambahkan Dompet"}
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+		<!-- BOTTOM SHEET: TRANSFER ANTAR DOMPET -->
+		{#if isTransferSheetOpen}
+			<div
+				class="bottom-sheet-backdrop"
+				onclick={() => (isTransferSheetOpen = false)}
+				onkeydown={(e) => {
+					if (e.key === "Escape") isTransferSheetOpen = false;
+				}}
+				role="presentation"
+			>
+				<div
+					class="bottom-sheet-sheet transfer-modal-sheet"
+					onclick={(e) => e.stopPropagation()}
+					onkeydown={(e) => e.stopPropagation()}
+					role="dialog"
+					tabindex="-1"
+				>
+					<div class="sheet-grabber-bar"></div>
+					<div class="sheet-header">
+						<div class="dompet-sheet-title-group">
+							<h3 class="sheet-title">Transfer Antar Dompet</h3>
+							<span class="sheet-subtitle"
+								>Pindahkan saldo antar rekening atau dompet Anda</span
+							>
+						</div>
+						<button
+							class="sheet-close-btn"
+							aria-label="Tutup"
+							onclick={() => (isTransferSheetOpen = false)}
+						>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.2"
+								><line x1="18" y1="6" x2="6" y2="18" /><line
+									x1="6"
+									y1="6"
+									x2="18"
+									y2="18"
+								/></svg
+							>
+						</button>
+					</div>
+
+					<div class="sheet-body-scroll">
+						<div class="transfer-visual-flow">
+							<div class="tv-box">
+								<span class="tv-lbl">Dari:</span>
+								<strong class="tv-val">
+									{dompetList.find(
+										(d) =>
+											d.id ===
+											Number(transferForm.dari_dompet_id),
+									)?.nama || "Pilih Dompet"}
+								</strong>
+							</div>
+							<div class="tv-arrow">
+								<svg
+									width="18"
+									height="18"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.5"
+									><polyline points="9 18 15 12 9 6" /></svg
+								>
+							</div>
+							<div class="tv-box">
+								<span class="tv-lbl">Ke:</span>
+								<strong class="tv-val">
+									{dompetList.find(
+										(d) =>
+											d.id ===
+											Number(transferForm.ke_dompet_id),
+									)?.nama || "Pilih Dompet"}
+								</strong>
+							</div>
+						</div>
+
+						<div class="sheet-form-grid mt-3">
+							<div class="sheet-field">
+								<label for="inp-trf-dari"
+									>Dari Dompet (Asal)</label
+								>
+								<select
+									id="inp-trf-dari"
+									class="native-sheet-input"
+									bind:value={transferForm.dari_dompet_id}
+								>
+									{#each dompetList as d}
+										<option value={d.id}>
+											{getDompetIcon(d.tipe)}
+											{d.nama} ({formatRupiah(
+												d.saldo_sekarang,
+											)})
+										</option>
+									{/each}
+								</select>
+							</div>
+
+							<div class="sheet-field">
+								<label for="inp-trf-ke"
+									>Ke Dompet (Tujuan)</label
+								>
+								<select
+									id="inp-trf-ke"
+									class="native-sheet-input"
+									bind:value={transferForm.ke_dompet_id}
+								>
+									{#each dompetList as d}
+										<option value={d.id}>
+											{getDompetIcon(d.tipe)}
+											{d.nama} ({formatRupiah(
+												d.saldo_sekarang,
+											)})
+										</option>
+									{/each}
+								</select>
+							</div>
+
+							<div class="sheet-field full-width">
+								<label for="inp-trf-nominal"
+									>Nominal Transfer (Rp)</label
+								>
+								<input
+									id="inp-trf-nominal"
+									type="number"
+									min="1"
+									class="native-sheet-input text-lg font-bold"
+									placeholder="Contoh: 150000"
+									bind:value={transferForm.nominal}
+								/>
+								{#if transferForm.nominal > 0}
+									<div class="nominal-preview-tag">
+										{formatRupiah(transferForm.nominal)}
+									</div>
+								{/if}
+							</div>
+
+							<div class="sheet-field">
+								<label for="inp-trf-date">Tanggal</label>
+								<input
+									id="inp-trf-date"
+									type="date"
+									class="native-sheet-input"
+									bind:value={transferForm.tanggal}
+								/>
+							</div>
+
+							<div class="sheet-field">
+								<label for="inp-trf-cat"
+									>Catatan (Opsional)</label
+								>
+								<input
+									id="inp-trf-cat"
+									type="text"
+									class="native-sheet-input"
+									placeholder="Misal: Top up GoPay dari BCA"
+									bind:value={transferForm.catatan}
+								/>
+							</div>
+						</div>
+					</div>
+
+					<div class="sheet-sticky-footer">
+						<button
+							type="button"
+							class="btn-sheet-cancel"
+							onclick={() => (isTransferSheetOpen = false)}
+						>
+							Batal
+						</button>
+						<button
+							type="button"
+							class="btn-sheet-submit"
+							onclick={handleTransferSubmit}
+							disabled={transferLoading}
+						>
+							{transferLoading
+								? "Memproses Transfer..."
+								: "Kirim Transfer Saldo"}
+						</button>
+					</div>
 				</div>
 			</div>
 		{/if}
@@ -3425,6 +8327,12 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		flex-direction: column;
 		-webkit-tap-highlight-color: transparent;
 	}
+	.app-mobile-root.app-logged-in {
+		height: 100dvh;
+		height: 100svh;
+		max-height: 100dvh;
+		overflow: hidden;
+	}
 
 	/* SPLASH SCREEN */
 	.auth-loading-screen {
@@ -3437,380 +8345,15 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		gap: 0.8rem;
 		background: #f5f0e8;
 	}
-	.splash-title { font-size: 1.4rem; font-weight: 800; font-family: 'Outfit', sans-serif; color: #231f1c; }
-	.splash-sub { font-size: 0.85rem; color: #7c746a; }
-
-	/* ====================================================
-	   LANDING PAGE TWO-COLUMNS (INFO + LOGIN)
-	   ==================================================== */
-	.landing-page-wrap {
-		min-height: 100dvh;
-		background-color: #f5f0e8;
-		background-image: 
-			radial-gradient(circle at 12% 18%, rgba(16, 185, 129, 0.08) 0%, transparent 45%),
-			radial-gradient(circle at 88% 55%, rgba(217, 119, 6, 0.06) 0%, transparent 50%),
-			url("data:image/svg+xml,%3Csvg width='160' height='160' viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23706456' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round' opacity='0.08'%3E%3Cpath d='M16 26 h18 a2 2 0 0 1 2 2 v9 a9 9 0 0 1 -9 9 h-2 a9 9 0 0 1 -9 -9 v-9 a2 2 0 0 1 2 -2 z'/%3E%3Crect x='85' y='18' width='36' height='24' rx='4'/%3E%3Ccircle cx='124' cy='112' r='8'/%3E%3C/svg%3E");
-		display: flex;
-		flex-direction: column;
-	}
-
-	/* TOP NAVIGATION BAR */
-	.landing-nav-bar {
-		background: rgba(245, 240, 232, 0.92);
-		backdrop-filter: blur(14px);
-		-webkit-backdrop-filter: blur(14px);
-		border-bottom: 1px solid #e3dbce;
-		flex-shrink: 0;
-		padding: 0.55rem 1.5rem;
-		box-shadow: 0 1px 4px rgba(35, 31, 28, 0.03);
-	}
-	.landing-nav-inner {
-		max-width: 1240px;
-		margin: 0 auto;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-	}
-	.landing-nav-brand {
-		display: flex;
-		align-items: center;
-		gap: 0.65rem;
-	}
-	.brand-logo-text {
-		display: flex;
-		flex-direction: column;
-	}
-	.logo-title {
-		font-family: 'Outfit', sans-serif;
-		font-size: 1.25rem;
+	.splash-title {
+		font-size: 1.4rem;
 		font-weight: 800;
+		font-family: "Outfit", sans-serif;
 		color: #231f1c;
-		line-height: 1.1;
-		letter-spacing: -0.02em;
 	}
-	.logo-sub {
-		font-size: 0.68rem;
+	.splash-sub {
+		font-size: 0.85rem;
 		color: #7c746a;
-		font-weight: 600;
-	}
-	.landing-nav-right {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-	}
-	.landing-status-badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4rem;
-		background: #e6f4ea;
-		border: 1px solid #b7e4c7;
-		color: #047857;
-		font-size: 0.72rem;
-		font-weight: 700;
-		padding: 0.3rem 0.7rem;
-		border-radius: 9999px;
-	}
-	.status-pulse-dot {
-		width: 7px;
-		height: 7px;
-		border-radius: 50%;
-		background: #10b981;
-		box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-		animation: pulseDot 2s infinite;
-	}
-	@keyframes pulseDot {
-		0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-		70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-		100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-	}
-	.nav-cta-btn {
-		background: #ffffff;
-		border: 1.5px solid #059669;
-		color: #059669;
-		font-weight: 700;
-		font-size: 0.78rem;
-		padding: 0.35rem 0.85rem;
-		border-radius: 8px;
-		transition: all 0.15s ease;
-		cursor: pointer;
-	}
-	.nav-cta-btn:hover {
-		background: #059669;
-		color: #ffffff;
-		box-shadow: 0 3px 8px rgba(5, 150, 105, 0.25);
-	}
-
-	/* MAIN 2-COLUMN LAYOUT */
-	.landing-main-container {
-		flex: 1;
-		min-height: 0;
-		max-width: 1240px;
-		width: 100%;
-		margin: 0 auto;
-		padding: 0.8rem 1.5rem;
-		display: flex;
-		align-items: center;
-	}
-	.landing-grid-layout {
-		display: grid;
-		grid-template-columns: 1.15fr 0.85fr;
-		gap: 2.4rem;
-		align-items: center;
-		width: 100%;
-	}
-
-	/* COLUMN 1: LANDING PAGE INFO */
-	.landing-info-column {
-		display: flex;
-		flex-direction: column;
-	}
-	.hero-tag-badge {
-		align-self: flex-start;
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4rem;
-		background: #eef7ee;
-		border: 1px solid #c0e6ce;
-		color: #047857;
-		padding: 0.26rem 0.75rem;
-		border-radius: 9999px;
-		font-size: 0.74rem;
-		font-weight: 700;
-		margin-bottom: 0.6rem;
-		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.04);
-	}
-	.landing-hero-title {
-		font-family: 'Outfit', sans-serif;
-		font-size: clamp(1.6rem, 2.3vw, 2.15rem);
-		font-weight: 800;
-		color: #231f1c;
-		line-height: 1.18;
-		letter-spacing: -0.025em;
-		margin-bottom: 0.5rem;
-	}
-	.accent-text-highlight {
-		background: linear-gradient(135deg, #059669 0%, #10b981 100%);
-		-webkit-background-clip: text;
-		-webkit-text-fill-color: transparent;
-		display: inline;
-	}
-	.landing-hero-subtitle {
-		font-size: 0.86rem;
-		line-height: 1.48;
-		color: #554d44;
-		margin-bottom: 0.9rem;
-		max-width: 540px;
-	}
-
-	/* INTERACTIVE SHOWCASE CARD (CHAT SIMULATION) */
-	.landing-showcase-card {
-		background: #ffffff;
-		border: 1.5px solid #ded5c8;
-		border-radius: 16px;
-		box-shadow: 0 10px 26px -8px rgba(35, 31, 28, 0.08), 0 3px 8px rgba(35, 31, 28, 0.03);
-		overflow: hidden;
-		margin-bottom: 0.85rem;
-	}
-	.showcase-card-header {
-		background: #faf6f0;
-		border-bottom: 1px solid #e7ded2;
-		padding: 0.5rem 0.85rem;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.65rem;
-	}
-	.showcase-assistant-avatar {
-		width: 30px;
-		height: 30px;
-		border-radius: 8px;
-		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-		color: #ffffff;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-	}
-	.showcase-assistant-info {
-		flex: 1;
-		min-width: 0;
-	}
-	.assistant-name {
-		font-size: 0.82rem;
-		font-weight: 800;
-		color: #231f1c;
-	}
-	.assistant-status {
-		font-size: 0.68rem;
-		color: #736b61;
-		display: flex;
-		align-items: center;
-		gap: 0.3rem;
-	}
-	.online-indicator {
-		width: 5px;
-		height: 5px;
-		border-radius: 50%;
-		background: #10b981;
-	}
-	.showcase-mode-pill {
-		font-size: 0.68rem;
-		font-weight: 700;
-		background: #eae3d6;
-		color: #554d44;
-		padding: 0.2rem 0.55rem;
-		border-radius: 9999px;
-		border: 1px solid #ddd5c7;
-	}
-
-	.showcase-chat-flow {
-		padding: 0.75rem 0.85rem;
-		background: #efeae2;
-		background-image: url("data:image/svg+xml,%3Csvg width='140' height='140' viewBox='0 0 140 140' xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23706456' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round' opacity='0.08'%3E%3Cpath d='M16 26 h18 a2 2 0 0 1 2 2 v9 a9 9 0 0 1 -9 9 h-2 a9 9 0 0 1 -9 -9 v-9 a2 2 0 0 1 2 -2 z'/%3E%3Crect x='85' y='18' width='36' height='24' rx='4'/%3E%3Ccircle cx='124' cy='112' r='8'/%3E%3C/svg%3E");
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-	.chat-bubble-row {
-		display: flex;
-		width: 100%;
-	}
-	.chat-bubble-row.user-row { justify-content: flex-end; }
-	.chat-bubble-row.bot-row { justify-content: flex-start; }
-
-	.chat-mock-bubble {
-		max-width: 88%;
-		border-radius: 12px;
-		padding: 0.5rem 0.75rem;
-		font-size: 0.8rem;
-		line-height: 1.35;
-		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.06);
-		position: relative;
-	}
-	.user-bubble {
-		background: #dcf8c6;
-		color: #13381e;
-		border: 1px solid #c8e6b3;
-		border-top-right-radius: 3px;
-	}
-	.bot-bubble {
-		background: #ffffff;
-		color: #231f1c;
-		border: 1px solid #e3dbce;
-		border-top-left-radius: 3px;
-	}
-	.chat-time {
-		display: block;
-		text-align: right;
-		font-size: 0.65rem;
-		color: #7c746b;
-		margin-top: 0.15rem;
-	}
-	.bot-badge-tag {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.3rem;
-		font-size: 0.7rem;
-		font-weight: 800;
-		color: #047857;
-		background: #e6f4ea;
-		padding: 0.15rem 0.45rem;
-		border-radius: 5px;
-		margin-bottom: 0.25rem;
-	}
-	.bot-badge-tag.vision-tag {
-		color: #92400e;
-		background: #fef3c7;
-	}
-	.bot-badge-tag .text-danger { color: #e11d48; font-weight: 800; }
-	.bot-micro-meta {
-		display: flex;
-		align-items: center;
-		gap: 0.45rem;
-		font-size: 0.72rem;
-		color: #6d6459;
-	}
-	.category-chip {
-		background: #eef2ff;
-		color: #4338ca;
-		font-weight: 700;
-		font-size: 0.68rem;
-		padding: 0.1rem 0.4rem;
-		border-radius: 5px;
-	}
-	.chip-sub {
-		color: #554d44;
-		font-size: 0.7rem;
-		font-weight: 600;
-	}
-	.receipt-banner-bubble {
-		background: #fffdfa;
-	}
-	.receipt-banner-text {
-		font-size: 0.74rem;
-		color: #433d34;
-		line-height: 1.32;
-	}
-
-	/* COMPACT FEATURES ROW */
-	.landing-features-compact-row {
-		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 0.45rem;
-	}
-	.compact-feature-pill {
-		background: #ffffff;
-		border: 1px solid #ded5c8;
-		border-radius: 10px;
-		padding: 0.42rem 0.65rem;
-		display: flex;
-		align-items: center;
-		gap: 0.45rem;
-		font-size: 0.75rem;
-		font-weight: 700;
-		color: #231f1c;
-		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.03);
-	}
-	.pill-icon {
-		width: 26px;
-		height: 26px;
-		border-radius: 7px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-	}
-	.icon-emerald-soft { background: #e6f4ea; color: #059669; }
-	.icon-amber-soft { background: #fef3c7; color: #d97706; }
-	.icon-indigo-soft { background: #eef2ff; color: #4f46e5; }
-	.icon-rose-soft { background: #ffe4e6; color: #e11d48; }
-
-	/* COLUMN 2: AUTH CARD BOX */
-	.landing-auth-column {
-		position: relative;
-	}
-	.sticky-auth-box {
-		position: static;
-	}
-	.auth-card-box {
-		width: 100%;
-		background: #ffffff;
-		border: 1.5px solid #ded5c8;
-		border-radius: 20px;
-		padding: 1.45rem 1.45rem;
-		box-shadow: 0 14px 34px -10px rgba(35, 31, 28, 0.1), 0 3px 10px rgba(35, 31, 28, 0.04);
-		display: flex;
-		flex-direction: column;
-		gap: 0.85rem;
-		animation: fadeIn 0.25s ease;
-	}
-	.auth-brand-head {
-		text-align: center;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.2rem;
 	}
 	.brand-gem-large {
 		width: 44px;
@@ -3823,281 +8366,1296 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		justify-content: center;
 		box-shadow: 0 3px 10px rgba(5, 150, 105, 0.26);
 		margin-bottom: 0.15rem;
+		flex-shrink: 0;
 	}
-	.auth-app-title {
-		font-size: 1.3rem;
-		font-weight: 800;
-		font-family: 'Outfit', sans-serif;
-		color: #231f1c;
-		letter-spacing: -0.02em;
-	}
-	.auth-app-desc {
-		font-size: 0.76rem;
-		color: #6d6459;
-		line-height: 1.35;
+	.auth-brand-head .brand-gem-large {
+		width: 52px;
+		height: 52px;
+		border-radius: 14px;
+		margin-bottom: 0.35rem;
 	}
 
-	.auth-tabs-row {
+	/* ====================================================
+	   LANDING PAGE: MODERN, RESPONSIVE, RICH FEATURE SHOWCASE
+	   ==================================================== */
+	.landing-page-wrap {
+		min-height: 100dvh;
+		background-color: #faf6f0;
+		background-image: radial-gradient(
+				circle at 10% 15%,
+				rgba(16, 185, 129, 0.07) 0%,
+				transparent 45%
+			),
+			radial-gradient(
+				circle at 90% 45%,
+				rgba(217, 119, 6, 0.06) 0%,
+				transparent 50%
+			),
+			url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23706456' stroke-width='1' stroke-linecap='round' stroke-linejoin='round' opacity='0.05'%3E%3Cpath d='M16 26 h18 a2 2 0 0 1 2 2 v9 a9 9 0 0 1 -9 9 h-2 a9 9 0 0 1 -9 -9 v-9 a2 2 0 0 1 2 -2 z'/%3E%3Crect x='70' y='18' width='30' height='20' rx='4'/%3E%3Ccircle cx='95' cy='85' r='6'/%3E%3C/svg%3E");
 		display: flex;
-		background: #eae3d6;
-		padding: 0.2rem;
-		border-radius: 10px;
-		border: 1px solid #ded5c8;
+		flex-direction: column;
+		scroll-behavior: smooth;
+		color: #231f1c;
 	}
-	.auth-tab-btn {
-		flex: 1;
-		background: transparent;
-		color: #6d6459;
-		padding: 0.45rem 0;
-		border-radius: 8px;
+
+	/* TOP NAVIGATION BAR */
+	.landing-nav-bar {
+		position: sticky;
+		top: 0;
+		z-index: 60;
+		background: rgba(250, 246, 240, 0.88);
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
+		border-bottom: 1px solid rgba(227, 219, 206, 0.8);
+		flex-shrink: 0;
+		padding: 0.65rem 1.5rem;
+		box-shadow: 0 1px 6px rgba(35, 31, 28, 0.03);
+	}
+	.landing-nav-inner {
+		max-width: 1240px;
+		margin: 0 auto;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1.25rem;
+	}
+	.landing-nav-brand {
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+	}
+	.brand-logo-text {
+		display: flex;
+		flex-direction: column;
+	}
+	.logo-title {
+		font-family: "Outfit", sans-serif;
+		font-size: 1.3rem;
+		font-weight: 800;
+		color: #231f1c;
+		line-height: 1.1;
+		letter-spacing: -0.02em;
+	}
+	.logo-sub {
+		font-size: 0.68rem;
+		color: #7c746a;
+		font-weight: 600;
+	}
+
+	/* NAV LINKS (DESKTOP) */
+	.landing-nav-links {
+		display: flex;
+		align-items: center;
+		gap: 1.4rem;
+	}
+	.landing-nav-link {
+		color: #574f46;
+		font-size: 0.86rem;
+		font-weight: 600;
+		text-decoration: none;
+		transition: all 0.15s ease;
+		padding: 0.25rem 0.5rem;
+		border-radius: 6px;
+	}
+	.landing-nav-link:hover {
+		color: #059669;
+		background: rgba(5, 150, 105, 0.06);
+	}
+
+	.landing-nav-right {
+		display: flex;
+		align-items: center;
+		gap: 0.85rem;
+	}
+	.landing-status-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		background: #ecfdf5;
+		border: 1px solid #a7f3d0;
+		color: #047857;
+		font-size: 0.74rem;
+		font-weight: 700;
+		padding: 0.35rem 0.8rem;
+		border-radius: 9999px;
+	}
+	.status-pulse-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: #10b981;
+		box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+		animation: pulseDot 2s infinite;
+	}
+	@keyframes pulseDot {
+		0% {
+			transform: scale(0.95);
+			box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+		}
+		70% {
+			transform: scale(1);
+			box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+		}
+		100% {
+			transform: scale(0.95);
+			box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+		}
+	}
+	.nav-cta-btn {
+		background: #059669;
+		border: 1px solid #047857;
+		color: #ffffff;
 		font-weight: 700;
 		font-size: 0.82rem;
+		padding: 0.42rem 1.05rem;
+		border-radius: 8px;
+		transition: all 0.15s ease;
+		cursor: pointer;
+		box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25);
+	}
+	.nav-cta-btn:hover {
+		background: #047857;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 10px rgba(5, 150, 105, 0.35);
+	}
+
+	/* MAIN WRAPPER */
+	.landing-main-container {
+		flex: 1;
+		max-width: 1240px;
+		width: 100%;
+		margin: 0 auto;
+		padding: 2rem 1.5rem 3.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 4.5rem;
+	}
+
+	/* SECTION 1: HERO & AUTH SIDE-BY-SIDE */
+	.landing-hero-auth-section {
+		display: grid;
+		grid-template-columns: 1.15fr 0.85fr;
+		gap: 3rem;
+		align-items: center;
+		padding-top: 1rem;
+	}
+	.landing-hero-content {
+		display: flex;
+		flex-direction: column;
+	}
+	.hero-tag-badge {
+		align-self: flex-start;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: #eef7ee;
+		border: 1px solid #c0e6ce;
+		color: #047857;
+		padding: 0.32rem 0.85rem;
+		border-radius: 9999px;
+		font-size: 0.78rem;
+		font-weight: 700;
+		margin-bottom: 1.1rem;
+		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.04);
+	}
+	.landing-hero-title {
+		font-family: "Outfit", sans-serif;
+		font-size: clamp(2rem, 3.4vw, 3rem);
+		font-weight: 800;
+		line-height: 1.16;
+		letter-spacing: -0.025em;
+		color: #231f1c;
+		margin: 0 0 1.1rem 0;
+	}
+	.accent-text-highlight {
+		background: linear-gradient(
+			135deg,
+			#059669 0%,
+			#0d9488 50%,
+			#d97706 100%
+		);
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+	}
+	.landing-hero-subtitle {
+		font-size: 1.05rem;
+		line-height: 1.6;
+		color: #574f46;
+		margin: 0 0 1.5rem 0;
+	}
+	.hero-quick-perks {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1.1rem;
+		margin-bottom: 2rem;
+	}
+	.hero-perk-item {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.84rem;
+		font-weight: 700;
+		color: #2e5939;
+		background: rgba(16, 185, 129, 0.08);
+		padding: 0.3rem 0.75rem;
+		border-radius: 6px;
+	}
+	.hero-action-row {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+	.btn-hero-primary {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.6rem;
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		color: #ffffff;
+		font-weight: 800;
+		font-size: 0.95rem;
+		padding: 0.85rem 1.6rem;
+		border-radius: 12px;
+		border: none;
+		cursor: pointer;
+		box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35);
+		transition: all 0.2s ease;
+	}
+	.btn-hero-primary:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 6px 20px rgba(5, 150, 105, 0.45);
+	}
+	.btn-hero-secondary {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: #ffffff;
+		border: 1.5px solid #d4c7b8;
+		color: #403831;
+		font-weight: 700;
+		font-size: 0.92rem;
+		padding: 0.82rem 1.4rem;
+		border-radius: 12px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		box-shadow: 0 2px 6px rgba(35, 31, 28, 0.04);
+	}
+	.btn-hero-secondary:hover {
+		background: #fdfbf7;
+		border-color: #059669;
+		color: #059669;
+	}
+
+	/* AUTH BOX SIDE CARD */
+	.landing-auth-column {
+		display: flex;
+		justify-content: center;
+	}
+	.auth-card-box {
+		width: 100%;
+		max-width: 440px;
+		background: #ffffff;
+		border: 1px solid #e3dbce;
+		border-radius: 20px;
+		padding: 2rem 1.8rem;
+		box-shadow:
+			0 12px 36px rgba(35, 31, 28, 0.08),
+			0 2px 6px rgba(35, 31, 28, 0.03);
+	}
+	.auth-brand-head {
 		text-align: center;
-		transition: all 0.18s ease;
+		margin-bottom: 1.3rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+	}
+	.auth-app-title {
+		font-family: "Outfit", sans-serif;
+		font-size: 1.35rem;
+		font-weight: 800;
+		color: #231f1c;
+		margin: 0.6rem 0 0.25rem 0;
+	}
+	.auth-app-desc {
+		font-size: 0.82rem;
+		color: #7c746a;
+		line-height: 1.4;
+		margin: 0;
+	}
+	.auth-tabs-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.35rem;
+		background: #f2ede4;
+		padding: 0.3rem;
+		border-radius: 10px;
+		margin-bottom: 1.25rem;
+	}
+	.auth-tab-btn {
+		background: transparent;
+		border: none;
+		padding: 0.55rem;
+		font-weight: 700;
+		font-size: 0.82rem;
+		color: #70675c;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.15s ease;
 	}
 	.auth-tab-btn.active {
 		background: #ffffff;
 		color: #231f1c;
-		box-shadow: 0 1px 4px rgba(35, 31, 28, 0.1);
+		box-shadow: 0 2px 5px rgba(35, 31, 28, 0.08);
 	}
-
 	.auth-error-banner {
-		background: #fee2e2;
-		border: 1px solid #fecaca;
-		color: #b91c1c;
-		padding: 0.55rem 0.8rem;
-		border-radius: 8px;
-		font-size: 0.78rem;
 		display: flex;
 		align-items: center;
-		gap: 0.45rem;
+		gap: 0.5rem;
+		background: #fef2f2;
+		border: 1px solid #fecaca;
+		color: #b91c1c;
+		font-size: 0.8rem;
+		font-weight: 600;
+		padding: 0.6rem 0.85rem;
+		border-radius: 8px;
+		margin-bottom: 1rem;
 	}
-
 	.auth-form-stack {
 		display: flex;
 		flex-direction: column;
-		gap: 0.72rem;
+		gap: 0.95rem;
 	}
 	.auth-field {
 		display: flex;
 		flex-direction: column;
-		gap: 0.22rem;
+		gap: 0.35rem;
+	}
+	.auth-field label {
+		font-size: 0.78rem;
+		font-weight: 700;
+		color: #403831;
 	}
 	.field-label-split {
 		display: flex;
-		align-items: center;
 		justify-content: space-between;
-	}
-	.auth-field label {
-		font-size: 0.76rem;
-		font-weight: 700;
-		color: #3b352e;
+		align-items: center;
 	}
 	.btn-toggle-pwd {
-		background: transparent;
-		color: #059669;
+		background: none;
+		border: none;
 		font-size: 0.72rem;
-		font-weight: 700;
-		padding: 0;
+		font-weight: 600;
+		color: #059669;
 		cursor: pointer;
-	}
-	.btn-toggle-pwd:hover {
-		text-decoration: underline;
+		padding: 0;
 	}
 	.auth-input-wrap {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
 		background: #faf7f2;
-		border: 1.5px solid #ded5c8;
-		border-radius: 9px;
-		padding: 0.58rem 0.8rem;
-		transition: border-color 0.15s ease, box-shadow 0.15s ease;
+		border: 1.5px solid #dfd6c8;
+		border-radius: 10px;
+		padding: 0 0.85rem;
+		transition: all 0.15s ease;
 	}
 	.auth-input-wrap:focus-within {
-		border-color: #059669;
 		background: #ffffff;
-		box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+		border-color: #059669;
+		box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
 	}
-	.auth-input-icon { color: #8e8579; flex-shrink: 0; }
+	.auth-input-icon {
+		color: #8c8275;
+		margin-right: 0.55rem;
+		flex-shrink: 0;
+	}
 	.auth-input-wrap input {
 		width: 100%;
 		border: none;
-		outline: none;
 		background: transparent;
+		padding: 0.72rem 0;
+		font-size: 0.88rem;
 		color: #231f1c;
-		font-size: 0.86rem;
+		outline: none;
 	}
-
 	.btn-auth-submit {
-		margin-top: 0.2rem;
-		width: 100%;
-		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-		color: #ffffff;
-		font-weight: 700;
-		font-size: 0.9rem;
-		padding: 0.76rem;
-		border-radius: 10px;
-		box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
-		transition: transform 0.12s ease, opacity 0.12s ease, box-shadow 0.12s ease;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		gap: 0.5rem;
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		color: #ffffff;
+		font-weight: 800;
+		font-size: 0.92rem;
+		padding: 0.8rem;
+		border-radius: 10px;
+		border: none;
+		cursor: pointer;
+		margin-top: 0.35rem;
+		box-shadow: 0 3px 8px rgba(5, 150, 105, 0.25);
+		transition: all 0.15s ease;
 	}
 	.btn-auth-submit:hover:not(:disabled) {
-		transform: translateY(-1px);
-		box-shadow: 0 6px 18px rgba(16, 185, 129, 0.36);
+		background: #047857;
+		box-shadow: 0 5px 12px rgba(5, 150, 105, 0.35);
 	}
-	.btn-auth-submit:active { transform: scale(0.98); }
-	.btn-auth-submit:disabled { opacity: 0.65; cursor: not-allowed; }
-
+	.btn-auth-submit:disabled {
+		opacity: 0.7;
+		cursor: not-allowed;
+	}
 	.btn-spinner {
-		width: 15px;
-		height: 15px;
-		border: 2px solid rgba(255, 255, 255, 0.3);
+		width: 14px;
+		height: 14px;
+		border: 2px solid rgba(255, 255, 255, 0.4);
 		border-top-color: #ffffff;
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
 	}
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-
 	.auth-switch-helper {
 		text-align: center;
-		font-size: 0.78rem;
-		color: #6d6459;
+		font-size: 0.8rem;
+		color: #70675c;
+		margin-top: 1rem;
 	}
 	.link-switch-auth {
-		background: transparent;
+		background: none;
 		border: none;
 		color: #059669;
 		font-weight: 700;
+		font-size: 0.8rem;
 		cursor: pointer;
-		text-decoration: underline;
 		padding: 0;
+		text-decoration: underline;
 	}
-	.link-switch-auth:hover { color: #047857; }
-
 	.auth-security-notice {
 		display: flex;
 		align-items: flex-start;
-		gap: 0.45rem;
-		background: #faf7f2;
-		border: 1px solid #e8dfd3;
-		padding: 0.55rem 0.75rem;
-		border-radius: 8px;
-		font-size: 0.7rem;
-		color: #6d6459;
+		gap: 0.6rem;
+		background: #f8faf9;
+		border: 1px solid #d1e7dd;
+		padding: 0.65rem 0.85rem;
+		border-radius: 10px;
+		margin-top: 1.1rem;
+		color: #1b4332;
+	}
+	.auth-security-notice svg {
+		color: #059669;
+		flex-shrink: 0;
+		margin-top: 0.15rem;
+	}
+	.security-text-box strong {
+		display: block;
+		font-size: 0.75rem;
+		font-weight: 800;
+	}
+	.security-text-box p {
+		margin: 0.15rem 0 0 0;
+		font-size: 0.71rem;
+		color: #526359;
 		line-height: 1.35;
 	}
-	.auth-security-notice svg { flex-shrink: 0; color: #059669; margin-top: 1px; }
-	.security-text-box strong { color: #231f1c; display: block; margin-bottom: 0.05rem; }
 
-	.auth-quick-perks {
+	/* SECTION HEADERS */
+	.landing-section-block {
+		display: flex;
+		flex-direction: column;
+		gap: 2rem;
+		scroll-margin-top: 5rem;
+	}
+	.section-header-center {
+		text-align: center;
+		max-width: 680px;
+		margin: 0 auto;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.4rem;
+	}
+	.section-kicker {
+		font-size: 0.74rem;
+		font-weight: 800;
+		letter-spacing: 0.08em;
+		color: #059669;
+		text-transform: uppercase;
+	}
+	.section-heading {
+		font-family: "Outfit", sans-serif;
+		font-size: clamp(1.6rem, 2.5vw, 2.2rem);
+		font-weight: 800;
+		color: #231f1c;
+		line-height: 1.22;
+		letter-spacing: -0.02em;
+		margin: 0;
+	}
+	.section-subtext {
+		font-size: 0.95rem;
+		color: #635b51;
+		line-height: 1.5;
+		margin: 0;
+	}
+
+	/* INTERACTIVE DEMO STAGE */
+	.demo-tabs-carousel {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.6rem;
+		flex-wrap: wrap;
+	}
+	.demo-nav-tab {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: #ffffff;
+		border: 1.5px solid #ded5c7;
+		padding: 0.65rem 1.15rem;
+		border-radius: 9999px;
+		font-weight: 700;
+		font-size: 0.84rem;
+		color: #574e45;
+		cursor: pointer;
+		transition: all 0.18s ease;
+		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.04);
+	}
+	.demo-nav-tab:hover {
+		border-color: #059669;
+		color: #059669;
+		background: #fdfcf9;
+	}
+	.demo-nav-tab.active {
+		background: #059669;
+		border-color: #047857;
+		color: #ffffff;
+		box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25);
+	}
+
+	.demo-interactive-stage {
+		background: #ffffff;
+		border: 1px solid #e1d8cb;
+		border-radius: 20px;
+		padding: 2rem;
+		box-shadow: 0 12px 30px rgba(35, 31, 28, 0.05);
+	}
+	.demo-panel-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		border-bottom: 1px solid #ebe4d8;
+		padding-bottom: 1.1rem;
+		margin-bottom: 1.5rem;
+		flex-wrap: wrap;
+		gap: 0.8rem;
+	}
+	.demo-panel-title {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+	.pulse-audio-icon {
+		font-size: 1.6rem;
+	}
+	.demo-panel-title strong {
+		display: block;
+		font-size: 1.05rem;
+		font-weight: 800;
+		color: #231f1c;
+	}
+	.demo-panel-title span {
+		font-size: 0.8rem;
+		color: #756c61;
+	}
+	.badge-tech {
+		background: #f2ede4;
+		color: #4b4237;
+		font-size: 0.72rem;
+		font-weight: 700;
+		padding: 0.3rem 0.65rem;
+		border-radius: 6px;
+	}
+
+	/* VOICE SIMULATION STYLES */
+	.voice-simulation-content,
+	.scan-simulation-content {
+		display: grid;
+		grid-template-columns: 1fr auto 1fr;
+		gap: 1.5rem;
+		align-items: center;
+	}
+	.voice-audio-card {
+		background: #faf6f0;
+		border: 1.5px dashed #cfc5b4;
+		border-radius: 14px;
+		padding: 1.4rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		gap: 0.9rem;
+	}
+	.recording-badge-mock {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		background: #fee2e2;
+		color: #dc2626;
+		font-size: 0.74rem;
+		font-weight: 800;
+		padding: 0.25rem 0.65rem;
+		border-radius: 9999px;
+	}
+	.rec-red-dot {
+		width: 7px;
+		height: 7px;
+		background: #dc2626;
+		border-radius: 50%;
+		animation: pulseDot 1s infinite;
+	}
+	.audio-waves-visual {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		height: 38px;
+	}
+	.wave-bar {
+		width: 5px;
+		background: #059669;
+		border-radius: 9999px;
+		animation: soundWave 1.2s ease-in-out infinite alternate;
+	}
+	.wave-bar.h1 {
+		height: 12px;
+		animation-delay: 0.1s;
+	}
+	.wave-bar.h2 {
+		height: 22px;
+		animation-delay: 0.3s;
+	}
+	.wave-bar.h3 {
+		height: 32px;
+		animation-delay: 0.2s;
+	}
+	.wave-bar.h4 {
+		height: 26px;
+		animation-delay: 0.4s;
+	}
+	.wave-bar.h5 {
+		height: 38px;
+		animation-delay: 0.5s;
+	}
+	@keyframes soundWave {
+		0% {
+			transform: scaleY(0.4);
+			opacity: 0.6;
+		}
+		100% {
+			transform: scaleY(1.1);
+			opacity: 1;
+		}
+	}
+	.voice-transcription-preview {
+		font-style: italic;
+		font-size: 0.88rem;
+		color: #3b342e;
+		background: #ffffff;
+		border: 1px solid #ded6c9;
+		padding: 0.6rem 0.85rem;
+		border-radius: 8px;
+		margin: 0;
+	}
+
+	.demo-arrow-flow {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.3rem;
+		color: #059669;
+		font-size: 0.72rem;
+		font-weight: 800;
+		text-align: center;
+	}
+	.demo-result-card {
+		background: #fdfbf7;
+		border: 1.5px solid #a7f3d0;
+		border-radius: 14px;
+		padding: 1.25rem 1.4rem;
+		box-shadow: 0 4px 14px rgba(16, 185, 129, 0.08);
+	}
+	.result-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		border-bottom: 1px dashed #d1fae5;
+		padding-bottom: 0.65rem;
+		margin-bottom: 0.75rem;
+	}
+	.result-badge-success {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		color: #047857;
+		font-size: 0.78rem;
+		font-weight: 800;
+	}
+	.result-time {
+		font-size: 0.72rem;
+		color: #797166;
+	}
+	.result-amount {
+		font-family: "Outfit", sans-serif;
+		font-size: 1.4rem;
+		font-weight: 800;
+		margin-bottom: 0.2rem;
+	}
+	.danger-text {
+		color: #dc2626;
+	}
+	.success-text {
+		color: #059669;
+	}
+	.primary-text {
+		color: #2563eb;
+	}
+	.result-desc {
+		font-size: 0.86rem;
+		font-weight: 700;
+		color: #231f1c;
+		margin-bottom: 0.8rem;
+	}
+	.result-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+	}
+	.tag-pill {
+		font-size: 0.72rem;
+		font-weight: 700;
+		padding: 0.22rem 0.55rem;
+		border-radius: 6px;
+	}
+	.category-pill {
+		background: #fef3c7;
+		color: #b45309;
+	}
+	.wallet-pill {
+		background: #e0e7ff;
+		color: #4338ca;
+	}
+	.voice-pill {
+		background: #dcfce7;
+		color: #15803d;
+	}
+	.scan-pill {
+		background: #fae8ff;
+		color: #86198f;
+	}
+
+	/* RECEIPT SCAN STYLES */
+	.mock-receipt-sheet {
+		position: relative;
+		background: #ffffff;
+		border: 1px solid #d4ccbf;
+		border-radius: 4px;
+		padding: 1.2rem;
+		box-shadow: 0 4px 12px rgba(35, 31, 28, 0.08);
+		font-family: monospace;
+		font-size: 0.8rem;
+		color: #3b352e;
+		overflow: hidden;
+	}
+	.receipt-store-title {
+		font-weight: 900;
+		text-align: center;
+		font-size: 0.9rem;
+		letter-spacing: 0.05em;
+	}
+	.receipt-date {
+		text-align: center;
+		font-size: 0.7rem;
+		color: #756d62;
+		margin-bottom: 0.4rem;
+	}
+	.receipt-divider {
+		color: #bbb0a0;
+		overflow: hidden;
+		text-align: center;
+		font-size: 0.7rem;
+		margin: 0.3rem 0;
+	}
+	.receipt-item-row,
+	.receipt-total-row {
+		display: flex;
+		justify-content: space-between;
+		line-height: 1.5;
+	}
+	.receipt-total-row {
+		margin-top: 0.4rem;
+		font-size: 0.85rem;
+		color: #111;
+	}
+	.receipt-scan-laser-line {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 3px;
+		background: linear-gradient(90deg, transparent, #10b981, transparent);
+		box-shadow: 0 0 10px #10b981;
+		animation: laserScan 2.5s ease-in-out infinite alternate;
+	}
+	@keyframes laserScan {
+		0% {
+			top: 0%;
+		}
+		100% {
+			top: 95%;
+		}
+	}
+
+	/* WALLET DEMO STYLES */
+	.dompet-simulation-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+	.wallets-grid-demo {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1.2rem;
+	}
+	.demo-wallet-card {
+		border-radius: 14px;
+		padding: 1.2rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		box-shadow: 0 3px 10px rgba(35, 31, 28, 0.04);
+		transition: transform 0.2s ease;
+	}
+	.demo-wallet-card:hover {
+		transform: translateY(-2px);
+	}
+	.cash-card {
+		background: linear-gradient(135deg, #f0fdf4 0%, #e6f4ea 100%);
+		border: 1px solid #bbf7d0;
+	}
+	.bank-card {
+		background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+		border: 1px solid #bfdbfe;
+	}
+	.ewallet-card {
+		background: linear-gradient(135deg, #fefce8 0%, #fef3c7 100%);
+		border: 1px solid #fde68a;
+	}
+	.d-wallet-top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+	.d-wallet-icon {
+		font-size: 1.3rem;
+	}
+	.d-wallet-type {
+		font-size: 0.68rem;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		opacity: 0.75;
+	}
+	.d-wallet-name {
+		font-weight: 800;
+		font-size: 0.95rem;
+		color: #231f1c;
+	}
+	.d-wallet-balance {
+		font-family: "Outfit", sans-serif;
+		font-size: 1.28rem;
+		font-weight: 800;
+		color: #231f1c;
+	}
+	.d-wallet-action-hint {
+		font-size: 0.72rem;
+		color: #61574d;
+		margin-top: 0.2rem;
+	}
+	.demo-transfer-notice {
+		background: #fdfbf7;
+		border: 1px solid #e5dcce;
+		border-radius: 12px;
+		padding: 1rem 1.3rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+	.transfer-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		color: #059669;
+		font-weight: 800;
+		font-size: 0.78rem;
+	}
+	.demo-transfer-notice p {
+		margin: 0;
+		font-size: 0.84rem;
+		color: #574e44;
+		line-height: 1.45;
+	}
+
+	/* REPORT & CHART DEMO STYLES */
+	.report-simulation-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+	.demo-chart-box {
+		background: #faf7f2;
+		border: 1px solid #e3dacd;
+		border-radius: 14px;
+		padding: 1.4rem;
+	}
+	.chart-box-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1.2rem;
+		font-size: 0.88rem;
+		color: #3b342e;
+	}
+	.chart-summary-stat {
+		font-weight: 800;
+		color: #dc2626;
+	}
+	.demo-bars-wrap {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+		gap: 0.85rem;
+		height: 110px;
+		align-items: flex-end;
+		border-bottom: 1.5px solid #ded5c8;
+		padding-bottom: 0.4rem;
+	}
+	.demo-bar-col {
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		justify-content: flex-end;
+		align-items: center;
+		gap: 0.4rem;
+	}
+	.demo-bar-fill {
+		width: 100%;
+		max-width: 32px;
+		background: #cbd5e1;
+		border-radius: 6px 6px 0 0;
+		transition: all 0.3s ease;
+	}
+	.demo-bar-fill.active-highest {
+		background: linear-gradient(180deg, #f87171 0%, #dc2626 100%);
+	}
+	.demo-bar-col:hover .demo-bar-fill {
+		background: #059669;
+	}
+	.demo-bar-day {
+		font-size: 0.72rem;
+		font-weight: 700;
+		color: #786f63;
+	}
+	.demo-breakdown-row {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1rem;
+	}
+	.breakdown-card {
+		background: #ffffff;
+		border: 1px solid #e2d9cd;
+		border-radius: 12px;
+		padding: 1rem 1.2rem;
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
-		border-top: 1px solid #eee7dc;
-		padding-top: 0.65rem;
 	}
-	.perk-bullet {
+	.b-label {
+		font-size: 0.72rem;
+		font-weight: 700;
+		color: #786f63;
+	}
+	.b-val {
+		font-family: "Outfit", sans-serif;
+		font-size: 1.2rem;
+		font-weight: 800;
+	}
+
+	/* BENTO GRID (SECTION 3) */
+	.bento-features-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1.35rem;
+	}
+	.bento-card {
+		position: relative;
+		background: #ffffff;
+		border: 1px solid #e3d9cb;
+		border-radius: 18px;
+		padding: 1.6rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.8rem;
+		box-shadow: 0 4px 16px rgba(35, 31, 28, 0.04);
+		transition: all 0.2s ease;
+	}
+	.bento-card:hover {
+		transform: translateY(-4px);
+		box-shadow: 0 8px 24px rgba(35, 31, 28, 0.08);
+		border-color: #cbd5e1;
+	}
+	.bento-card.highlight-border {
+		border-color: #a7f3d0;
+		background: linear-gradient(180deg, #ffffff 0%, #fafffe 100%);
+	}
+	.bento-badge-chip {
+		position: absolute;
+		top: 1.2rem;
+		right: 1.2rem;
+		background: #e6f4ea;
+		color: #047857;
+		font-size: 0.72rem;
+		font-weight: 800;
+		padding: 0.22rem 0.55rem;
+		border-radius: 9999px;
+		border: 1px solid #bbf7d0;
+	}
+	.bento-icon-box {
+		width: 46px;
+		height: 46px;
+		background: #f4efe7;
+		border: 1px solid #e2d9cd;
+		border-radius: 12px;
 		display: flex;
 		align-items: center;
-		gap: 0.4rem;
+		justify-content: center;
+		color: #059669;
+	}
+	.bento-card.highlight-border .bento-icon-box {
+		background: #ecfdf5;
+		border-color: #bbf7d0;
+	}
+	.bento-title {
+		font-family: "Outfit", sans-serif;
+		font-size: 1.15rem;
+		font-weight: 800;
+		color: #231f1c;
+		margin: 0;
+	}
+	.bento-desc {
+		font-size: 0.86rem;
+		color: #635b51;
+		line-height: 1.5;
+		margin: 0;
+		flex: 1;
+	}
+	.bento-mini-pill {
+		align-self: flex-start;
 		font-size: 0.72rem;
-		color: #554d44;
+		font-weight: 700;
+		color: #059669;
+		background: rgba(5, 150, 105, 0.08);
+		padding: 0.28rem 0.65rem;
+		border-radius: 6px;
+	}
+
+	/* COMPARISON TABLE (SECTION 4) */
+	.comparison-table-wrapper {
+		background: #ffffff;
+		border: 1px solid #e3d9cb;
+		border-radius: 18px;
+		overflow-x: auto;
+		box-shadow: 0 6px 20px rgba(35, 31, 28, 0.05);
+	}
+	.comparison-table {
+		width: 100%;
+		border-collapse: collapse;
+		text-align: left;
+		font-size: 0.86rem;
+	}
+	.comparison-table th,
+	.comparison-table td {
+		padding: 1.1rem 1.3rem;
+		border-bottom: 1px solid #eee7dc;
+	}
+	.comparison-table thead th {
+		background: #faf6f0;
+		font-family: "Outfit", sans-serif;
+		font-weight: 800;
+		font-size: 0.92rem;
+		color: #3d352d;
+	}
+	.th-catatai.highlight-col,
+	td.highlight-col {
+		background: #f4faf6;
+		border-left: 2px solid #10b981;
+		border-right: 2px solid #10b981;
+	}
+	.th-catatai.highlight-col {
+		color: #047857;
+		font-size: 1rem;
+	}
+	.td-feature-title {
+		font-weight: 700;
+		color: #231f1c;
+	}
+	.badge-yes {
+		color: #047857;
+		font-weight: 700;
+	}
+	.badge-no {
+		color: #b91c1c;
 		font-weight: 600;
 	}
-	.perk-bullet svg { color: #10b981; flex-shrink: 0; }
+	.badge-neutral {
+		color: #b45309;
+		font-weight: 600;
+	}
+
+	/* BOTTOM CTA (SECTION 5) */
+	.landing-bottom-cta {
+		margin-top: 1rem;
+	}
+	.bottom-cta-card {
+		background: linear-gradient(
+			135deg,
+			#1f2937 0%,
+			#111827 50%,
+			#064e3b 100%
+		);
+		border-radius: 24px;
+		padding: 3.5rem 2rem;
+		text-align: center;
+		color: #ffffff;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1.1rem;
+		box-shadow: 0 16px 40px rgba(17, 24, 39, 0.2);
+	}
+	.bottom-cta-sparkle {
+		font-size: 2.2rem;
+	}
+	.bottom-cta-title {
+		font-family: "Outfit", sans-serif;
+		font-size: clamp(1.8rem, 3vw, 2.5rem);
+		font-weight: 800;
+		line-height: 1.2;
+		max-width: 650px;
+		margin: 0;
+	}
+	.bottom-cta-sub {
+		font-size: 1rem;
+		color: #d1d5db;
+		max-width: 580px;
+		line-height: 1.5;
+		margin: 0;
+	}
+	.btn-cta-bottom {
+		background: #10b981;
+		color: #ffffff;
+		font-weight: 800;
+		font-size: 1rem;
+		padding: 0.95rem 2rem;
+		border-radius: 12px;
+		border: none;
+		cursor: pointer;
+		margin-top: 0.6rem;
+		box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+		transition: all 0.2s ease;
+	}
+	.btn-cta-bottom:hover {
+		background: #059669;
+		transform: translateY(-2px);
+		box-shadow: 0 6px 22px rgba(16, 185, 129, 0.5);
+	}
 
 	/* LANDING FOOTER */
 	.landing-page-footer {
-		background: #ece5d9;
-		border-top: 1px solid #ded5c8;
-		padding: 0.55rem 1.5rem;
-		flex-shrink: 0;
+		background: #f4ede3;
+		border-top: 1px solid #e1d7c9;
+		padding: 1.8rem 1.5rem;
+		margin-top: auto;
 	}
 	.footer-inner {
 		max-width: 1240px;
 		margin: 0 auto;
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
+		justify-content: space-between;
+		gap: 1.5rem;
 		flex-wrap: wrap;
-		gap: 0.75rem;
-		font-size: 0.75rem;
-		color: #736b61;
 	}
 	.footer-left {
 		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		flex-wrap: wrap;
+		flex-direction: column;
+		gap: 0.2rem;
 	}
-	.footer-logo {
-		font-family: 'Outfit', sans-serif;
+	.footer-brand-title {
+		font-family: "Outfit", sans-serif;
 		font-weight: 800;
+		font-size: 1.15rem;
 		color: #231f1c;
-		font-size: 0.9rem;
+	}
+	.footer-copy {
+		font-size: 0.78rem;
+		color: #797166;
+		margin: 0;
 	}
 	.footer-right {
 		display: flex;
 		align-items: center;
-		gap: 0.45rem;
+		gap: 0.6rem;
+		font-size: 0.76rem;
+		color: #797166;
 	}
-	.dot-sep { opacity: 0.5; }
-
-	/* ====================================================
-	   DESKTOP (>= 960px): FIT IN EXACTLY 1 VIEWPORT SCREEN (NO SCROLL)
-	   ==================================================== */
-	@media (min-width: 960px) {
-		.landing-page-wrap {
-			height: 100dvh;
-			max-height: 100dvh;
-			overflow: hidden;
-		}
+	.dot-sep {
+		opacity: 0.5;
 	}
 
-	/* ====================================================
-	   MOBILE MODE (< 960px): DIRECT LOGIN ONLY!
-	   SEPERTI DIMINTA: TAMPIL HALAMAN LOGIN AJA LANGSUNG
-	   ==================================================== */
-	@media (max-width: 959px) {
-		.landing-page-wrap {
-			min-height: 100dvh;
-			justify-content: center;
-			align-items: center;
-			padding: 1.25rem 1rem;
+	/* RESPONSIVE BREAKPOINTS */
+	@media (max-width: 1024px) {
+		.bento-features-grid {
+			grid-template-columns: repeat(2, 1fr);
 		}
-		/* Sembunyikan elemen landing info, navbar, dan footer di mode mobile */
-		.landing-nav-bar,
-		.landing-info-column,
-		.landing-page-footer {
-			display: none !important;
+		.wallets-grid-demo {
+			grid-template-columns: 1fr;
 		}
-		.landing-main-container {
-			padding: 0;
-			width: 100%;
-			max-width: 440px;
-			display: flex;
-			align-items: center;
-			justify-content: center;
+	}
+
+	@media (max-width: 860px) {
+		.landing-nav-links {
+			display: none;
 		}
-		.landing-grid-layout {
-			display: block;
-			width: 100%;
+		.landing-hero-auth-section {
+			grid-template-columns: 1fr;
+			gap: 2.5rem;
 		}
 		.landing-auth-column {
 			width: 100%;
 		}
 		.auth-card-box {
-			width: 100%;
-			max-width: 440px;
-			margin: 0 auto;
-			padding: 1.8rem 1.4rem;
-			box-shadow: 0 10px 30px rgba(35, 31, 28, 0.08);
+			max-width: 100%;
+		}
+		.voice-simulation-content,
+		.scan-simulation-content {
+			grid-template-columns: 1fr;
+		}
+		.demo-arrow-flow {
+			transform: rotate(90deg);
+			margin: 0.5rem 0;
+		}
+		.bento-features-grid {
+			grid-template-columns: 1fr;
+		}
+		.demo-breakdown-row {
+			grid-template-columns: 1fr;
+		}
+		.status-badge-text {
+			display: none;
 		}
 	}
 
@@ -4112,22 +9670,22 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		z-index: 50;
 		padding-top: env(safe-area-inset-top, 0px);
 		box-shadow: 0 2px 8px rgba(35, 31, 28, 0.03);
+		flex-shrink: 0;
 	}
-
-	
 
 	.brand-unit {
 		display: flex;
 		align-items: center;
-		gap: 0.55rem;
+		gap: 0.45rem;
+		min-width: 0;
 	}
 
 	.brand-gem-modern {
-		width: 34px;
-		height: 34px;
+		width: 30px;
+		height: 30px;
 		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
 		color: #ffffff;
-		border-radius: 10px;
+		border-radius: 8px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -4138,28 +9696,38 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	.brand-meta {
 		display: flex;
 		flex-direction: column;
-		line-height: 1.2;
+		line-height: 1.15;
+		min-width: 0;
 	}
 
 	.brand-name-bold {
-		font-size: 1.15rem;
+		font-size: 1.05rem;
 		font-weight: 800;
-		font-family: 'Outfit', sans-serif;
+		font-family: "Outfit", sans-serif;
 		color: #231f1c;
 		letter-spacing: -0.02em;
 	}
 
 	.brand-kpi-sub {
-		font-size: 0.72rem;
+		font-size: 0.68rem;
 		color: #787063;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
-	.text-expense { color: #dc2626; font-weight: 700; }
-	.text-neutral { color: #554d42; font-weight: 600; }
+	.text-expense {
+		color: #dc2626;
+		font-weight: 700;
+	}
+	.text-neutral {
+		color: #554d42;
+		font-weight: 600;
+	}
 
 	.header-actions-cluster {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.45rem;
 	}
 
 	.btn-action-add {
@@ -4167,37 +9735,95 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		border: 1px solid #ded5c8;
 		color: #231f1c;
 		font-weight: 700;
-		padding: 0.4rem 0.75rem;
+		padding: 0.35rem 0.65rem;
 		border-radius: 9999px;
-		font-size: 0.78rem;
+		font-size: 0.76rem;
 		display: flex;
 		align-items: center;
-		gap: 0.35rem;
+		gap: 0.3rem;
 		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.05);
-		transition: background 0.15s, transform 0.1s;
+		transition:
+			background 0.15s,
+			transform 0.1s;
 	}
-	.btn-action-add:active { transform: scale(0.96); background: #f5efe4; }
+	.btn-action-add:active {
+		transform: scale(0.96);
+		background: #f5efe4;
+	}
 
 	.btn-avatar-profile {
 		width: 34px;
 		height: 34px;
+		border-radius: 50%;
+		background: transparent;
+		border: none;
+		padding: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		position: relative;
+		transition: transform 0.1s;
+	}
+	.btn-avatar-profile:active {
+		transform: scale(0.92);
+	}
+
+	.avatar-letter-wrapper {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.btn-avatar-profile .avatar-letter {
+		width: 32px;
+		height: 32px;
 		border-radius: 50%;
 		background: linear-gradient(135deg, #059669 0%, #047857 100%);
 		color: #ffffff;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 0.88rem;
+		font-size: 0.85rem;
 		font-weight: 800;
 		box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25);
 		border: 2px solid #ffffff;
-		transition: transform 0.1s;
-		cursor: pointer;
 	}
-	.btn-avatar-profile:active { transform: scale(0.92); }
 
-	/* ROW 2: SEGMENTED TABS (FULL-WIDTH & MODERN) */
+	.avatar-pro-badge {
+		position: absolute;
+		bottom: -2px;
+		right: -2px;
+		width: 14px;
+		height: 14px;
+		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+		border: 1.5px solid #ffffff;
+		border-radius: 50%;
+		font-size: 7px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+		line-height: 1;
+		pointer-events: none;
+	}
+
+	.desktop-pro-pill {
+		display: none;
+		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+		color: #ffffff;
+		font-size: 0.62rem;
+		font-weight: 800;
+		padding: 0.1rem 0.4rem;
+		border-radius: 9999px;
+		letter-spacing: 0.02em;
+		font-family: "Outfit", sans-serif;
+	}
+
+	/* ROW 2: SEGMENTED TABS (HIDDEN ON MOBILE, VISIBLE ON DESKTOP) */
 	.header-tier-tabs {
+		display: none;
 		max-width: 900px;
 		margin: 0 auto;
 		padding: 0.15rem 1rem 0.65rem;
@@ -4259,31 +9885,54 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.85rem;
 		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.04);
 	}
-	.alert-content { display: flex; align-items: center; gap: 0.5rem; }
-	.alert-danger { background: #fee2e2; border: 1px solid #fecaca; color: #b91c1c; }
-	.alert-success { background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; }
-	.alert-close { background: transparent; display: flex; align-items: center; justify-content: center; color: inherit; padding: 2px; }
+	.alert-content {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.alert-danger {
+		background: #fee2e2;
+		border: 1px solid #fecaca;
+		color: #b91c1c;
+	}
+	.alert-success {
+		background: #ecfdf5;
+		border: 1px solid #a7f3d0;
+		color: #047857;
+	}
+	.alert-close {
+		background: transparent;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: inherit;
+		padding: 2px;
+	}
 
 	/* MAIN VIEWPORT */
 	.app-main {
-		flex: 1;
+		flex: 1 1 0%;
+		min-height: 0;
 		display: flex;
 		flex-direction: column;
 		max-width: 900px;
 		width: 100%;
 		margin: 0 auto;
+		overflow: hidden;
 	}
 
 	/* ====================================================
 	   CHAT MOBILE EXPERIENCE (CLEAN STREAM, ZERO OVERLAP)
 	   ==================================================== */
 	.chat-mobile-container {
-		flex: 1;
+		flex: 1 1 0%;
+		min-height: 0;
 		display: flex;
 		flex-direction: column;
-		height: calc(100dvh - 100px);
+		height: 100%;
 		background: #efeae2;
 		position: relative;
+		overflow: hidden;
 	}
 
 	/* ====================================================
@@ -4368,7 +10017,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.88rem;
 		font-weight: 800;
 		color: #231f1c;
-		font-family: 'Outfit', sans-serif;
+		font-family: "Outfit", sans-serif;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -4385,7 +10034,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	.ctx-card-amount {
 		font-size: 0.95rem;
 		font-weight: 800;
-		font-family: 'Outfit', sans-serif;
+		font-family: "Outfit", sans-serif;
 		white-space: nowrap;
 		text-align: right;
 	}
@@ -4454,47 +10103,6 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	/* ====================================================
 	   PRO & FREEMIUM TIER STYLING
 	   ==================================================== */
-	/* Header Tier Pills */
-	.btn-tier-status {
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
-		padding: 0.35rem 0.65rem;
-		border-radius: 9999px;
-		font-size: 0.76rem;
-		font-weight: 700;
-		cursor: pointer;
-		transition: transform 0.1s, box-shadow 0.15s;
-		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.05);
-	}
-	.btn-tier-status:hover {
-		transform: translateY(-1px);
-	}
-
-	.tier-pro {
-		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-		color: #ffffff;
-		border: 1px solid #b45309;
-		box-shadow: 0 2px 6px rgba(217, 119, 6, 0.3);
-	}
-	.pro-star { font-size: 0.8rem; }
-	.pro-tag { font-family: 'Outfit', sans-serif; letter-spacing: 0.02em; }
-
-	.tier-free {
-		background: #ffffff;
-		border: 1px solid #ded5c8;
-		color: #554d42;
-	}
-	.free-badge-lbl { color: #7c746a; }
-	.free-badge-count { font-weight: 800; color: #231f1c; }
-	.free-upgrade-arrow {
-		background: #fef3c7;
-		color: #b45309;
-		padding: 0.05rem 0.35rem;
-		border-radius: 9999px;
-		font-size: 0.68rem;
-		font-weight: 800;
-	}
 
 	/* Chat Bottom Dock Quota Strip */
 	.chat-quota-strip {
@@ -4611,7 +10219,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.88rem;
 		font-weight: 800;
 		color: #231f1c;
-		font-family: 'Outfit', sans-serif;
+		font-family: "Outfit", sans-serif;
 	}
 	.tier-status-pill {
 		font-size: 0.68rem;
@@ -4672,7 +10280,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	.upgrade-hero-title {
 		font-size: 1.35rem;
 		font-weight: 800;
-		font-family: 'Outfit', sans-serif;
+		font-family: "Outfit", sans-serif;
 		color: #231f1c;
 		letter-spacing: -0.02em;
 	}
@@ -4732,7 +10340,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.95rem;
 		font-weight: 800;
 		color: #231f1c;
-		font-family: 'Outfit', sans-serif;
+		font-family: "Outfit", sans-serif;
 	}
 	.plan-price {
 		font-size: 1.25rem;
@@ -4760,7 +10368,10 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		gap: 0.45rem;
 		line-height: 1.35;
 	}
-	.feat-bullet { font-size: 0.8rem; flex-shrink: 0; }
+	.feat-bullet {
+		font-size: 0.8rem;
+		flex-shrink: 0;
+	}
 
 	.btn-plan-toggle {
 		width: 100%;
@@ -4805,7 +10416,10 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.72rem;
 		color: #736b61;
 	}
-	.upgrade-note-box svg { color: #d97706; flex-shrink: 0; }
+	.upgrade-note-box svg {
+		color: #d97706;
+		flex-shrink: 0;
+	}
 
 	/* WA DOODLE PATTERN BACKGROUND */
 	.chat-stream-viewport {
@@ -4827,8 +10441,13 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		max-width: 90%;
 		animation: fadeIn 0.15s ease;
 	}
-	.bot-side { align-self: flex-start; }
-	.user-side { align-self: flex-end; flex-direction: row-reverse; }
+	.bot-side {
+		align-self: flex-start;
+	}
+	.user-side {
+		align-self: flex-end;
+		flex-direction: row-reverse;
+	}
 
 	.bot-tiny-avatar {
 		width: 28px;
@@ -4866,7 +10485,9 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		border-top-right-radius: 4px;
 	}
 
-	.msg-media-wrap { margin-bottom: 0.45rem; }
+	.msg-media-wrap {
+		margin-bottom: 0.45rem;
+	}
 	.msg-media-img {
 		max-width: 100%;
 		max-height: 200px;
@@ -4874,7 +10495,10 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		border: 1px solid rgba(0, 0, 0, 0.08);
 		object-fit: cover;
 	}
-	.msg-text-content { white-space: pre-wrap; word-break: break-word; }
+	.msg-text-content {
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
 
 	.msg-footer-meta {
 		display: flex;
@@ -4885,8 +10509,12 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.64rem;
 		color: #8c8376;
 	}
-	.user-side .msg-footer-meta { color: #537a5b; }
-	.msg-check-svg { margin-left: 1px; }
+	.user-side .msg-footer-meta {
+		color: #537a5b;
+	}
+	.msg-check-svg {
+		margin-left: 1px;
+	}
 
 	/* DRAFT CARD STYLES */
 	.tx-draft-box {
@@ -4915,12 +10543,29 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.82rem;
 		color: #2b251f;
 	}
-	.draft-icon-income { color: #059669; }
-	.draft-icon-expense { color: #dc2626; }
+	.draft-icon-income {
+		color: #059669;
+	}
+	.draft-icon-expense {
+		color: #dc2626;
+	}
 
-	.pill-type { font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.5rem; border-radius: 9999px; }
-	.pill-income { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
-	.pill-expense { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+	.pill-type {
+		font-size: 0.65rem;
+		font-weight: 800;
+		padding: 0.15rem 0.5rem;
+		border-radius: 9999px;
+	}
+	.pill-income {
+		background: #dcfce7;
+		color: #15803d;
+		border: 1px solid #bbf7d0;
+	}
+	.pill-expense {
+		background: #fee2e2;
+		color: #b91c1c;
+		border: 1px solid #fecaca;
+	}
 
 	.draft-grid-info {
 		display: grid;
@@ -4928,11 +10573,26 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		gap: 0.35rem 0.65rem;
 		font-size: 0.78rem;
 	}
-	.draft-col { display: flex; flex-direction: column; }
-	.col-k { font-size: 0.68rem; color: #7c7366; }
-	.col-v-bold { font-weight: 700; color: #231f1c; }
-	.col-v { color: #433d34; }
-	.method-tag { display: inline-flex; align-items: center; gap: 0.25rem; }
+	.draft-col {
+		display: flex;
+		flex-direction: column;
+	}
+	.col-k {
+		font-size: 0.68rem;
+		color: #7c7366;
+	}
+	.col-v-bold {
+		font-weight: 700;
+		color: #231f1c;
+	}
+	.col-v {
+		color: #433d34;
+	}
+	.method-tag {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
 	.col-tag {
 		background: #f4eee3;
 		padding: 0.1rem 0.45rem;
@@ -4953,8 +10613,14 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		gap: 0.25rem;
 		font-size: 0.75rem;
 	}
-	.draft-item-entry { display: flex; justify-content: space-between; }
-	.entry-sub { font-weight: 600; color: #231f1c; }
+	.draft-item-entry {
+		display: flex;
+		justify-content: space-between;
+	}
+	.entry-sub {
+		font-weight: 600;
+		color: #231f1c;
+	}
 
 	.draft-total-banner {
 		display: flex;
@@ -4963,11 +10629,25 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		border-top: 1px dashed #d5ccbe;
 		padding-top: 0.5rem;
 	}
-	.tot-caption { font-weight: 700; font-size: 0.85rem; color: #231f1c; }
-	.tot-val { font-weight: 800; font-size: 1.15rem; font-family: 'Outfit', sans-serif; }
-	.color-expense { color: #dc2626; }
-	.color-income { color: #059669; }
-	.color-blue { color: #2563eb; }
+	.tot-caption {
+		font-weight: 700;
+		font-size: 0.85rem;
+		color: #231f1c;
+	}
+	.tot-val {
+		font-weight: 800;
+		font-size: 1.15rem;
+		font-family: "Outfit", sans-serif;
+	}
+	.color-expense {
+		color: #dc2626;
+	}
+	.color-income {
+		color: #059669;
+	}
+	.color-blue {
+		color: #2563eb;
+	}
 
 	/* TOMBOL AKSI YANG DISULAP & BISA HILANG */
 	.draft-action-block {
@@ -5004,7 +10684,9 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		justify-content: center;
 		gap: 0.45rem;
 		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
-		transition: transform 0.1s, opacity 0.1s;
+		transition:
+			transform 0.1s,
+			opacity 0.1s;
 	}
 	.btn-primary-confirm:active {
 		transform: scale(0.98);
@@ -5030,7 +10712,9 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		gap: 0.35rem;
 		transition: background 0.15s;
 	}
-	.btn-sub-edit:active { background: #f3ede2; }
+	.btn-sub-edit:active {
+		background: #f3ede2;
+	}
 	.btn-sub-cancel {
 		flex: 1;
 		background: #fff5f5;
@@ -5046,7 +10730,9 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		gap: 0.35rem;
 		transition: background 0.15s;
 	}
-	.btn-sub-cancel:active { background: #fed7d7; }
+	.btn-sub-cancel:active {
+		background: #fed7d7;
+	}
 
 	/* INDIKATOR STATUS (MENGGANTIKAN TOMBOL SETELAH DIKLIK) */
 	.draft-status-pill {
@@ -5084,7 +10770,11 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		justify-content: space-between;
 		font-size: 0.78rem;
 	}
-	.saved-banner-left { display: flex; align-items: center; gap: 0.35rem; }
+	.saved-banner-left {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
 	.btn-detail-link {
 		background: #ffffff;
 		border: 1px solid #a7f3d0;
@@ -5109,13 +10799,29 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		border-radius: 50%;
 		animation: dotBounce 1.2s infinite ease-in-out;
 	}
-	.bounce-dot:nth-child(2) { animation-delay: 0.2s; }
-	.bounce-dot:nth-child(3) { animation-delay: 0.4s; }
-	.loading-label { font-size: 0.75rem; color: #7c746a; margin-left: 0.3rem; }
+	.bounce-dot:nth-child(2) {
+		animation-delay: 0.2s;
+	}
+	.bounce-dot:nth-child(3) {
+		animation-delay: 0.4s;
+	}
+	.loading-label {
+		font-size: 0.75rem;
+		color: #7c746a;
+		margin-left: 0.3rem;
+	}
 
 	@keyframes dotBounce {
-		0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-		40% { transform: scale(1.1); opacity: 1; }
+		0%,
+		80%,
+		100% {
+			transform: scale(0.6);
+			opacity: 0.4;
+		}
+		40% {
+			transform: scale(1.1);
+			opacity: 1;
+		}
 	}
 
 	.attached-media-bar {
@@ -5126,8 +10832,18 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		align-items: center;
 		gap: 0.65rem;
 	}
-	.thumb-container { position: relative; width: 40px; height: 40px; }
-	.thumb-img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; border: 1px solid #d5cbbe; }
+	.thumb-container {
+		position: relative;
+		width: 40px;
+		height: 40px;
+	}
+	.thumb-img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		border-radius: 6px;
+		border: 1px solid #d5cbbe;
+	}
 	.btn-remove-thumb {
 		position: absolute;
 		top: -6px;
@@ -5142,13 +10858,16 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		align-items: center;
 		justify-content: center;
 	}
-	.thumb-caption { font-size: 0.75rem; color: #736b60; }
+	.thumb-caption {
+		font-size: 0.75rem;
+		color: #736b60;
+	}
 
 	/* STICKY BOTTOM INPUT BAR */
 	.chat-bottom-dock {
 		background: #faf6f0;
 		border-top: 1px solid #e6ded3;
-		padding-bottom: env(safe-area-inset-bottom, 8px);
+		padding-bottom: 0.25rem;
 	}
 	.chat-quick-shortcuts {
 		display: flex;
@@ -5212,8 +10931,12 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		box-shadow: 0 1px 2px rgba(35, 31, 28, 0.05);
 		transition: background 0.15s;
 	}
-	.btn-dock-attach:active { background: #ede6da; }
-	.input-file-native { display: none; }
+	.btn-dock-attach:active {
+		background: #ede6da;
+	}
+	.input-file-native {
+		display: none;
+	}
 	.input-dock-text {
 		flex: 1;
 		background: #ffffff;
@@ -5225,7 +10948,9 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		outline: none;
 		box-shadow: inset 0 1px 2px rgba(35, 31, 28, 0.03);
 	}
-	.input-dock-text:focus { border-color: #059669; }
+	.input-dock-text:focus {
+		border-color: #059669;
+	}
 	.btn-dock-send {
 		width: 40px;
 		height: 40px;
@@ -5237,16 +10962,183 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		justify-content: center;
 		flex-shrink: 0;
 		box-shadow: 0 2px 6px rgba(5, 150, 105, 0.28);
-		transition: opacity 0.15s, transform 0.1s;
+		transition:
+			opacity 0.15s,
+			transform 0.1s;
 	}
-	.btn-dock-send:active { transform: scale(0.95); }
-	.btn-dock-send:disabled { background: #d5cbbe; opacity: 0.6; box-shadow: none; }
+	.btn-dock-send:active {
+		transform: scale(0.95);
+	}
+	.btn-dock-send:disabled {
+		background: #d5cbbe;
+		opacity: 0.6;
+		box-shadow: none;
+	}
+
+	/* VOICE NOTE & RECORDING STYLES */
+	.btn-dock-mic {
+		width: 40px;
+		height: 40px;
+		background: #059669;
+		color: #ffffff;
+		border: none;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		flex-shrink: 0;
+		box-shadow: 0 2px 6px rgba(5, 150, 105, 0.28);
+		transition:
+			background 0.15s,
+			transform 0.1s;
+	}
+	.btn-dock-mic:hover {
+		background: #047857;
+		transform: scale(1.05);
+	}
+	.btn-dock-mic:active {
+		transform: scale(0.95);
+	}
+	.btn-dock-mic:disabled {
+		background: #d5cbbe;
+		opacity: 0.6;
+		box-shadow: none;
+		cursor: not-allowed;
+	}
+
+	.dock-form-row.is-recording-mode {
+		background: #fff7ed;
+		border-radius: 14px;
+	}
+
+	.voice-recording-pill {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: #ffffff;
+		border: 1.5px solid #ea580c;
+		border-radius: 9999px;
+		padding: 0.45rem 0.85rem;
+		min-width: 0;
+		box-shadow: 0 1px 3px rgba(234, 88, 12, 0.15);
+	}
+	.vrp-pulse-dot {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		background: #dc2626;
+		animation: pulseRed 0.8s infinite alternate ease-in-out;
+		flex-shrink: 0;
+	}
+	@keyframes pulseRed {
+		from {
+			transform: scale(0.8);
+			opacity: 0.5;
+		}
+		to {
+			transform: scale(1.3);
+			opacity: 1;
+		}
+	}
+	.vrp-timer {
+		font-weight: 800;
+		font-size: 0.8rem;
+		color: #dc2626;
+		font-family: monospace;
+		flex-shrink: 0;
+	}
+	.vrp-waves {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		height: 14px;
+		flex-shrink: 0;
+	}
+	.vrp-waves span {
+		width: 2.5px;
+		height: 100%;
+		background: #ea580c;
+		border-radius: 2px;
+		animation: waveBar 0.8s ease-in-out infinite alternate;
+	}
+	.vrp-waves span:nth-child(2) {
+		animation-delay: 0.2s;
+		height: 60%;
+	}
+	.vrp-waves span:nth-child(3) {
+		animation-delay: 0.4s;
+		height: 90%;
+	}
+	.vrp-waves span:nth-child(4) {
+		animation-delay: 0.15s;
+		height: 45%;
+	}
+	@keyframes waveBar {
+		0% {
+			transform: scaleY(0.25);
+		}
+		100% {
+			transform: scaleY(1);
+		}
+	}
+	.vrp-status-text {
+		flex: 1;
+		font-size: 0.82rem;
+		color: #231f1c;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		font-style: italic;
+	}
+	.btn-dock-cancel-voice {
+		width: 38px;
+		height: 38px;
+		border-radius: 50%;
+		background: #fee2e2;
+		border: 1px solid #fecaca;
+		color: #b91c1c;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		flex-shrink: 0;
+		transition:
+			background 0.15s,
+			transform 0.1s;
+	}
+	.btn-dock-cancel-voice:active {
+		transform: scale(0.92);
+	}
+	.btn-dock-send-voice {
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+	}
+
+	.voice-note-tag {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		background: #e0f2fe;
+		color: #0369a1;
+		border: 1px solid #bae6fd;
+		padding: 0.1rem 0.45rem;
+		border-radius: 9999px;
+		font-size: 0.68rem;
+		font-weight: 700;
+		margin-bottom: 0.3rem;
+	}
 
 	/* ====================================================
 	   REPORT MOBILE VIEW (WARM THEME)
 	   ==================================================== */
 	.report-mobile-container {
-		padding: 0.85rem 0.85rem 3rem;
+		flex: 1 1 0%;
+		min-height: 0;
+		height: 100%;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+		padding: 0.85rem 0.85rem 2.5rem;
 		display: flex;
 		flex-direction: column;
 		gap: 0.85rem;
@@ -5461,7 +11353,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.85rem;
 		font-weight: 800;
 		color: #231f1c;
-		font-family: 'Outfit', sans-serif;
+		font-family: "Outfit", sans-serif;
 	}
 	.pbc-dates {
 		font-size: 0.72rem;
@@ -5485,7 +11377,9 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		flex-direction: column;
 		align-items: center;
 		gap: 0.35rem;
-		transition: transform 0.15s, box-shadow 0.15s;
+		transition:
+			transform 0.15s,
+			box-shadow 0.15s;
 	}
 	.week-day-card:hover {
 		transform: translateY(-2px);
@@ -5558,14 +11452,44 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		padding: 0.85rem;
 		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.03);
 	}
-	.kpi-lbl-row { display: flex; justify-content: space-between; align-items: center; }
-	.kpi-lbl { font-size: 0.72rem; font-weight: 600; color: #7c746a; }
-	.dot-badge { font-size: 0.6rem; font-weight: 800; padding: 0.1rem 0.35rem; border-radius: 9999px; }
-	.badge-red { background: #fee2e2; color: #b91c1c; }
-	.badge-green { background: #dcfce7; color: #15803d; }
-	.badge-blue { background: #e0e7ff; color: #1d4ed8; }
-	.kpi-num { font-size: 1.15rem; font-weight: 800; font-family: 'Outfit', sans-serif; margin: 0.25rem 0 0.1rem; }
-	.kpi-subt { font-size: 0.65rem; color: #8e8579; }
+	.kpi-lbl-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+	.kpi-lbl {
+		font-size: 0.72rem;
+		font-weight: 600;
+		color: #7c746a;
+	}
+	.dot-badge {
+		font-size: 0.6rem;
+		font-weight: 800;
+		padding: 0.1rem 0.35rem;
+		border-radius: 9999px;
+	}
+	.badge-red {
+		background: #fee2e2;
+		color: #b91c1c;
+	}
+	.badge-green {
+		background: #dcfce7;
+		color: #15803d;
+	}
+	.badge-blue {
+		background: #e0e7ff;
+		color: #1d4ed8;
+	}
+	.kpi-num {
+		font-size: 1.15rem;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+		margin: 0.25rem 0 0.1rem;
+	}
+	.kpi-subt {
+		font-size: 0.65rem;
+		color: #8e8579;
+	}
 
 	.card-mobile-panel {
 		background: #ffffff;
@@ -5574,8 +11498,17 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		padding: 0.85rem;
 		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.03);
 	}
-	.panel-title { font-size: 0.95rem; font-weight: 700; color: #231f1c; font-family: 'Outfit', sans-serif; }
-	.panel-sub { font-size: 0.72rem; color: #7c746a; margin-bottom: 0.85rem; }
+	.panel-title {
+		font-size: 0.95rem;
+		font-weight: 700;
+		color: #231f1c;
+		font-family: "Outfit", sans-serif;
+	}
+	.panel-sub {
+		font-size: 0.72rem;
+		color: #7c746a;
+		margin-bottom: 0.85rem;
+	}
 
 	.chart-mobile-scroll {
 		display: flex;
@@ -5609,17 +11542,51 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		background: linear-gradient(180deg, #ef4444 0%, #f97316 100%);
 		border-radius: 9999px;
 	}
-	.touch-date { font-size: 0.65rem; color: #8e8579; margin-top: 0.3rem; }
+	.touch-date {
+		font-size: 0.65rem;
+		color: #8e8579;
+		margin-top: 0.3rem;
+	}
 
-	.category-bars-col { display: flex; flex-direction: column; gap: 0.65rem; }
-	.cat-bar-item { display: flex; flex-direction: column; gap: 0.25rem; }
-	.cat-bar-header { display: flex; justify-content: space-between; font-size: 0.75rem; }
-	.cat-title { font-weight: 600; color: #3b352e; }
-	.cat-sum { color: #7c746a; }
-	.cat-track { height: 6px; background: #f4eee4; border-radius: 9999px; overflow: hidden; }
-	.cat-fill { height: 100%; background: #059669; border-radius: 9999px; }
+	.category-bars-col {
+		display: flex;
+		flex-direction: column;
+		gap: 0.65rem;
+	}
+	.cat-bar-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+	.cat-bar-header {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.75rem;
+	}
+	.cat-title {
+		font-weight: 600;
+		color: #3b352e;
+	}
+	.cat-sum {
+		color: #7c746a;
+	}
+	.cat-track {
+		height: 6px;
+		background: #f4eee4;
+		border-radius: 9999px;
+		overflow: hidden;
+	}
+	.cat-fill {
+		height: 100%;
+		background: #059669;
+		border-radius: 9999px;
+	}
 
-	.merchant-mini-list { display: flex; flex-direction: column; gap: 0.45rem; }
+	.merchant-mini-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+	}
 	.merchant-mini-row {
 		display: flex;
 		align-items: center;
@@ -5629,15 +11596,48 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		border: 1px solid #e8dfd3;
 		border-radius: 8px;
 	}
-	.m-rank { font-weight: 800; color: #7c746a; font-size: 0.85rem; width: 22px; }
-	.m-info { flex: 1; display: flex; flex-direction: column; }
-	.m-name { font-weight: 600; font-size: 0.82rem; color: #231f1c; }
-	.m-cnt { font-size: 0.68rem; color: #8e8579; }
-	.m-tot { font-weight: 700; color: #dc2626; font-size: 0.85rem; }
+	.m-rank {
+		font-weight: 800;
+		color: #7c746a;
+		font-size: 0.85rem;
+		width: 22px;
+	}
+	.m-info {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+	}
+	.m-name {
+		font-weight: 600;
+		font-size: 0.82rem;
+		color: #231f1c;
+	}
+	.m-cnt {
+		font-size: 0.68rem;
+		color: #8e8579;
+	}
+	.m-tot {
+		font-weight: 700;
+		color: #dc2626;
+		font-size: 0.85rem;
+	}
 
-	.daily-picker-box { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; }
-	.daily-picker-left { display: flex; align-items: center; gap: 0.4rem; }
-	.daily-lbl { font-size: 0.75rem; font-weight: 600; color: #554d42; }
+	.daily-picker-box {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.65rem;
+	}
+	.daily-picker-left {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+	.daily-lbl {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #554d42;
+	}
 	.picker-date-native {
 		background: #faf7f2;
 		border: 1px solid #ded5c8;
@@ -5647,7 +11647,10 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.8rem;
 		color: #231f1c;
 	}
-	.daily-chips-stats { display: flex; gap: 0.5rem; }
+	.daily-chips-stats {
+		display: flex;
+		gap: 0.5rem;
+	}
 	.stat-pill-item {
 		background: #faf7f2;
 		border: 1px solid #e8dfd3;
@@ -5657,12 +11660,24 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		gap: 0.35rem;
 		font-size: 0.75rem;
 	}
-	.sp-lbl { color: #7c746a; }
-	.sp-val { font-weight: 700; }
-	.daily-list-title { font-size: 0.85rem; font-weight: 700; color: #3b352e; }
+	.sp-lbl {
+		color: #7c746a;
+	}
+	.sp-val {
+		font-weight: 700;
+	}
+	.daily-list-title {
+		font-size: 0.85rem;
+		font-weight: 700;
+		color: #3b352e;
+	}
 
 	/* MOBILE TRANSACTION CARDS STREAM */
-	.mobile-cards-stream { display: flex; flex-direction: column; gap: 0.45rem; }
+	.mobile-cards-stream {
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+	}
 	.mobile-tx-entry {
 		display: flex;
 		align-items: center;
@@ -5676,7 +11691,9 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		text-align: left;
 		width: 100%;
 	}
-	.mobile-tx-entry:active { background: #f2ece1; }
+	.mobile-tx-entry:active {
+		background: #f2ece1;
+	}
 	.entry-icon {
 		width: 36px;
 		height: 36px;
@@ -5686,15 +11703,52 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		justify-content: center;
 		flex-shrink: 0;
 	}
-	.icon-red { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
-	.icon-green { background: #dcfce7; color: #059669; border: 1px solid #bbf7d0; }
-	.entry-core { flex: 1; min-width: 0; }
-	.entry-row-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
-	.entry-merchant { font-weight: 700; font-size: 0.85rem; color: #231f1c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.entry-amount { font-weight: 800; font-size: 0.88rem; font-family: 'Outfit', sans-serif; white-space: nowrap; flex-shrink: 0; }
-	.entry-row-sub { font-size: 0.68rem; color: #7c746a; margin-top: 0.1rem; }
+	.icon-red {
+		background: #fee2e2;
+		color: #dc2626;
+		border: 1px solid #fecaca;
+	}
+	.icon-green {
+		background: #dcfce7;
+		color: #059669;
+		border: 1px solid #bbf7d0;
+	}
+	.entry-core {
+		flex: 1;
+		min-width: 0;
+	}
+	.entry-row-top {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.entry-merchant {
+		font-weight: 700;
+		font-size: 0.85rem;
+		color: #231f1c;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.entry-amount {
+		font-weight: 800;
+		font-size: 0.88rem;
+		font-family: "Outfit", sans-serif;
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+	.entry-row-sub {
+		font-size: 0.68rem;
+		color: #7c746a;
+		margin-top: 0.1rem;
+	}
 
-	.search-and-export { display: flex; gap: 0.45rem; margin-bottom: 0.5rem; }
+	.search-and-export {
+		display: flex;
+		gap: 0.45rem;
+		margin-bottom: 0.5rem;
+	}
 	.mobile-search-bar {
 		flex: 1;
 		display: flex;
@@ -5707,7 +11761,13 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.82rem;
 		color: #7c746a;
 	}
-	.mobile-search-bar input { background: transparent; border: none; outline: none; width: 100%; color: #231f1c; }
+	.mobile-search-bar input {
+		background: transparent;
+		border: none;
+		outline: none;
+		width: 100%;
+		color: #231f1c;
+	}
 	.btn-csv-mobile {
 		background: #ffffff;
 		border: 1px solid #ded5c8;
@@ -5720,7 +11780,11 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		align-items: center;
 		gap: 0.35rem;
 	}
-	.mobile-filter-pills { display: flex; gap: 0.4rem; margin-bottom: 0.65rem; }
+	.mobile-filter-pills {
+		display: flex;
+		gap: 0.4rem;
+		margin-bottom: 0.65rem;
+	}
 	.native-filter-select {
 		flex: 1;
 		background: #faf7f2;
@@ -5732,9 +11796,18 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		color: #231f1c;
 	}
 
-	.empty-panel-text { text-align: center; padding: 2rem 1rem; font-size: 0.82rem; color: #8e8579; }
-	.mt-2 { margin-top: 0.5rem; }
-	.mt-3 { margin-top: 0.75rem; }
+	.empty-panel-text {
+		text-align: center;
+		padding: 2rem 1rem;
+		font-size: 0.82rem;
+		color: #8e8579;
+	}
+	.mt-2 {
+		margin-top: 0.5rem;
+	}
+	.mt-3 {
+		margin-top: 0.75rem;
+	}
 
 	/* ====================================================
 	   PROFILE POPUP MODAL
@@ -5770,9 +11843,20 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-weight: 800;
 		box-shadow: 0 4px 10px rgba(5, 150, 105, 0.3);
 	}
-	.profile-user-info { display: flex; flex-direction: column; }
-	.profile-name-text { font-size: 1.1rem; font-weight: 800; color: #231f1c; font-family: 'Outfit', sans-serif; }
-	.profile-email-text { font-size: 0.75rem; color: #7c746a; }
+	.profile-user-info {
+		display: flex;
+		flex-direction: column;
+	}
+	.profile-name-text {
+		font-size: 1.1rem;
+		font-weight: 800;
+		color: #231f1c;
+		font-family: "Outfit", sans-serif;
+	}
+	.profile-email-text {
+		font-size: 0.75rem;
+		color: #7c746a;
+	}
 
 	.profile-stats-card {
 		display: flex;
@@ -5782,10 +11866,27 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		padding: 0.85rem;
 		box-shadow: 0 1px 4px rgba(35, 31, 28, 0.04);
 	}
-	.stat-mini-col { flex: 1; display: flex; flex-direction: column; gap: 0.2rem; text-align: center; }
-	.stat-divider-line { width: 1px; background: #e8dfd3; margin: 0 0.5rem; }
-	.sm-lbl { font-size: 0.68rem; color: #7c746a; }
-	.sm-val { font-size: 0.95rem; font-weight: 800; font-family: 'Outfit', sans-serif; }
+	.stat-mini-col {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		text-align: center;
+	}
+	.stat-divider-line {
+		width: 1px;
+		background: #e8dfd3;
+		margin: 0 0.5rem;
+	}
+	.sm-lbl {
+		font-size: 0.68rem;
+		color: #7c746a;
+	}
+	.sm-val {
+		font-size: 0.95rem;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+	}
 
 	.btn-install-pwa-sheet {
 		background: #ecfdf5;
@@ -5801,7 +11902,9 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.85rem;
 		transition: background 0.15s;
 	}
-	.btn-install-pwa-sheet:active { background: #d1fae5; }
+	.btn-install-pwa-sheet:active {
+		background: #d1fae5;
+	}
 	.installed-pwa-badge {
 		background: #f0fdf4;
 		border: 1.5px solid #bbf7d0;
@@ -5830,7 +11933,9 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.85rem;
 		transition: background 0.15s;
 	}
-	.btn-logout-full:active { background: #fee2e2; }
+	.btn-logout-full:active {
+		background: #fee2e2;
+	}
 
 	/* ====================================================
 	   NATIVE BOTTOM SHEET MODAL (WARM UX)
@@ -5873,13 +11978,41 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		justify-content: space-between;
 		align-items: center;
 	}
-	.sheet-title { font-size: 1.05rem; font-weight: 700; color: #231f1c; font-family: 'Outfit', sans-serif; }
-	.sheet-close-btn { background: transparent; display: flex; align-items: center; justify-content: center; color: #7c746a; padding: 4px; }
+	.sheet-title {
+		font-size: 1.05rem;
+		font-weight: 700;
+		color: #231f1c;
+		font-family: "Outfit", sans-serif;
+	}
+	.sheet-close-btn {
+		background: transparent;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: #7c746a;
+		padding: 4px;
+	}
 
-	.sheet-body-scroll { padding: 1.1rem; overflow-y: auto; flex: 1; }
-	.sheet-form-grid { display: flex; flex-direction: column; gap: 0.65rem; }
-	.sheet-field { display: flex; flex-direction: column; gap: 0.25rem; }
-	.sheet-field label { font-size: 0.75rem; font-weight: 600; color: #554d42; }
+	.sheet-body-scroll {
+		padding: 1.1rem;
+		overflow-y: auto;
+		flex: 1;
+	}
+	.sheet-form-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 0.65rem;
+	}
+	.sheet-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+	.sheet-field label {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #554d42;
+	}
 	.native-sheet-input {
 		background: #faf7f2;
 		border: 1px solid #ded5c8;
@@ -5889,18 +12022,60 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		font-size: 0.85rem;
 		outline: none;
 	}
-	.native-sheet-input:focus { border-color: #059669; background: #ffffff; }
+	.native-sheet-input:focus {
+		border-color: #059669;
+		background: #ffffff;
+	}
 
-	.sheet-divider { border-top: 1px solid #eee7db; padding-top: 0.75rem; }
-	.sheet-divider-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
-	.sub-sheet-heading { font-size: 0.82rem; font-weight: 700; color: #3b352e; }
-	.btn-sheet-mini { background: #faf7f2; border: 1px solid #ded5c8; font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 6px; color: #3b352e; }
+	.sheet-divider {
+		border-top: 1px solid #eee7db;
+		padding-top: 0.75rem;
+	}
+	.sheet-divider-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.5rem;
+	}
+	.sub-sheet-heading {
+		font-size: 0.82rem;
+		font-weight: 700;
+		color: #3b352e;
+	}
+	.btn-sheet-mini {
+		background: #faf7f2;
+		border: 1px solid #ded5c8;
+		font-size: 0.72rem;
+		font-weight: 600;
+		padding: 0.2rem 0.5rem;
+		border-radius: 6px;
+		color: #3b352e;
+	}
 
-	.sheet-items-stack { display: flex; flex-direction: column; gap: 0.35rem; }
-	.sheet-item-row { display: flex; gap: 0.35rem; align-items: center; }
-	.flex-2 { flex: 2; }
-	.flex-1 { flex: 1; }
-	.btn-sheet-del { background: transparent; color: #dc2626; display: flex; align-items: center; justify-content: center; padding: 0.35rem; }
+	.sheet-items-stack {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+	.sheet-item-row {
+		display: flex;
+		gap: 0.35rem;
+		align-items: center;
+	}
+	.flex-2 {
+		flex: 2;
+	}
+	.flex-1 {
+		flex: 1;
+	}
+	.btn-sheet-del {
+		background: transparent;
+		color: #dc2626;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.35rem;
+	}
 
 	.sheet-calc-box {
 		background: #faf7f2;
@@ -5912,11 +12087,32 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		gap: 0.4rem;
 		font-size: 0.8rem;
 	}
-	.calc-line-row { display: flex; justify-content: space-between; color: #7c746a; }
-	.calc-inputs-row { display: flex; gap: 0.65rem; }
-	.calc-col { flex: 1; display: flex; flex-direction: column; gap: 0.2rem; }
-	.calc-col label { font-size: 0.68rem; color: #7c746a; }
-	.native-sheet-input-sm { background: #ffffff; border: 1px solid #ded5c8; padding: 0.3rem 0.5rem; border-radius: 6px; font-size: 0.8rem; }
+	.calc-line-row {
+		display: flex;
+		justify-content: space-between;
+		color: #7c746a;
+	}
+	.calc-inputs-row {
+		display: flex;
+		gap: 0.65rem;
+	}
+	.calc-col {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+	.calc-col label {
+		font-size: 0.68rem;
+		color: #7c746a;
+	}
+	.native-sheet-input-sm {
+		background: #ffffff;
+		border: 1px solid #ded5c8;
+		padding: 0.3rem 0.5rem;
+		border-radius: 6px;
+		font-size: 0.8rem;
+	}
 	.calc-grand-row {
 		display: flex;
 		justify-content: space-between;
@@ -5924,7 +12120,11 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		border-top: 1px dashed #d5ccbe;
 		padding-top: 0.5rem;
 	}
-	.tot-title { font-weight: 800; font-size: 0.95rem; color: #231f1c; }
+	.tot-title {
+		font-weight: 800;
+		font-size: 0.95rem;
+		color: #231f1c;
+	}
 	.native-grand-input {
 		background: #ffffff;
 		border: 1.5px solid #059669;
@@ -5976,49 +12176,183 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	}
 
 	/* DETAIL BOTTOM SHEET */
-	.detail-photo-card { margin-bottom: 0.75rem; }
-	.detail-img-full { width: 100%; max-height: 250px; object-fit: contain; border-radius: 8px; border: 1px solid #ded5c8; background: #000; }
-	.detail-tags-cluster { display: flex; gap: 0.35rem; margin-bottom: 0.35rem; flex-wrap: wrap; }
-	.detail-hero-store { font-size: 1.25rem; font-weight: 800; font-family: 'Outfit', sans-serif; color: #231f1c; }
-	.detail-hero-time { font-size: 0.75rem; color: #7c746a; margin-bottom: 0.65rem; display: flex; align-items: center; gap: 0.35rem; }
-	.detail-callout-note { background: #faf7f2; border-left: 3px solid #059669; padding: 0.5rem 0.75rem; font-size: 0.78rem; font-style: italic; margin-bottom: 0.65rem; color: #433d34; }
-	.detail-items-stack { background: #faf7f2; border: 1px solid #e8dfd3; border-radius: 8px; padding: 0.5rem 0.75rem; display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.78rem; }
-	.detail-item-line { display: flex; justify-content: space-between; }
+	.detail-photo-card {
+		margin-bottom: 0.75rem;
+	}
+	.detail-img-full {
+		width: 100%;
+		max-height: 250px;
+		object-fit: contain;
+		border-radius: 8px;
+		border: 1px solid #ded5c8;
+		background: #000;
+	}
+	.detail-tags-cluster {
+		display: flex;
+		gap: 0.35rem;
+		margin-bottom: 0.35rem;
+		flex-wrap: wrap;
+	}
+	.detail-hero-store {
+		font-size: 1.25rem;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+		color: #231f1c;
+	}
+	.detail-hero-time {
+		font-size: 0.75rem;
+		color: #7c746a;
+		margin-bottom: 0.65rem;
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+	.detail-callout-note {
+		background: #faf7f2;
+		border-left: 3px solid #059669;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.78rem;
+		font-style: italic;
+		margin-bottom: 0.65rem;
+		color: #433d34;
+	}
+	.detail-items-stack {
+		background: #faf7f2;
+		border: 1px solid #e8dfd3;
+		border-radius: 8px;
+		padding: 0.5rem 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		font-size: 0.78rem;
+	}
+	.detail-item-line {
+		display: flex;
+		justify-content: space-between;
+	}
 
 	@keyframes fadeIn {
-		from { opacity: 0; }
-		to { opacity: 1; }
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
 	}
 	@keyframes slideUp {
-		from { transform: translateY(100%); }
-		to { transform: translateY(0); }
+		from {
+			transform: translateY(100%);
+		}
+		to {
+			transform: translateY(0);
+		}
 	}
 
 	/* ====================================================
 	   DESKTOP & RESPONSIVE ENHANCEMENTS
 	   ==================================================== */
 
-	/* Header inner shell base (mobile first) */
+	/* Header inner shell base (mobile first - single clean row) */
 	.header-inner-shell {
 		max-width: 900px;
 		margin: 0 auto;
-		padding: 0.65rem 1rem 0.5rem;
+		padding: 0.45rem 0.85rem;
 		display: flex;
-		flex-wrap: wrap;
 		align-items: center;
 		justify-content: space-between;
-		gap: 0.45rem 0;
+		gap: 0.5rem;
 	}
-	.header-inner-shell .brand-unit { order: 1; }
-	.header-inner-shell .header-actions-cluster { order: 2; }
-	.header-inner-shell .header-tier-tabs { order: 3; width: 100%; padding: 0.2rem 0 0; }
-	.desktop-user-name { display: none; }
+	.header-inner-shell .brand-unit {
+		order: 1;
+		flex: 1;
+		min-width: 0;
+	}
+	.header-inner-shell .header-actions-cluster {
+		order: 2;
+		flex-shrink: 0;
+	}
+	.header-inner-shell .header-tier-tabs {
+		display: none;
+	}
+	.desktop-user-name {
+		display: none;
+	}
+
+	/* MOBILE BOTTOM NAVIGATION BAR (NATIVE APP EXPERIENCE) */
+	.mobile-bottom-nav {
+		flex: 0 0 auto;
+		width: 100%;
+		height: 52px;
+		background: rgba(250, 246, 240, 0.98);
+		backdrop-filter: blur(14px);
+		-webkit-backdrop-filter: blur(14px);
+		border-top: 1px solid #e6ded3;
+		display: flex;
+		align-items: center;
+		justify-content: space-around;
+		padding: 0 0.5rem env(safe-area-inset-bottom, 0px);
+		z-index: 60;
+		box-shadow: 0 -2px 10px rgba(35, 31, 28, 0.04);
+	}
+	.mob-nav-btn {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 2px;
+		background: transparent;
+		border: none;
+		color: #787063;
+		padding: 4px 0;
+		cursor: pointer;
+		transition: all 0.15s ease;
+		position: relative;
+		font-family: inherit;
+	}
+	.mob-nav-icon-wrap {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.mob-nav-label {
+		font-size: 0.7rem;
+		font-weight: 600;
+		line-height: 1.1;
+		transition: color 0.15s ease;
+	}
+	.mob-nav-btn.active {
+		color: #059669;
+	}
+	.mob-nav-btn.active .mob-nav-label {
+		font-weight: 800;
+	}
+	.mob-nav-btn.active svg {
+		transform: translateY(-1px);
+		stroke-width: 2.3;
+	}
+	.mob-nav-badge {
+		position: absolute;
+		top: -4px;
+		right: -10px;
+		background: #059669;
+		color: #ffffff;
+		font-size: 0.62rem;
+		font-weight: 800;
+		padding: 1px 5px;
+		border-radius: 9999px;
+		line-height: 1.2;
+		box-shadow: 0 1px 3px rgba(5, 150, 105, 0.35);
+	}
 
 	/* Chat Layout wrapper base */
 	.chat-layout-wrapper {
 		display: flex;
 		flex-direction: column;
-		flex: 1;
+		flex: 1 1 0%;
+		min-height: 0;
+		height: 100%;
 		width: 100%;
 	}
 	.chat-desktop-companion {
@@ -6057,8 +12391,14 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	}
 
 	@keyframes modalPop {
-		from { opacity: 0; transform: scale(0.96); }
-		to { opacity: 1; transform: scale(1); }
+		from {
+			opacity: 0;
+			transform: scale(0.96);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1);
+		}
 	}
 
 	/* FULL DESKTOP (>= 920px) */
@@ -6066,6 +12406,11 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		.app-mobile-root {
 			align-items: stretch;
 			width: 100%;
+		}
+		.app-mobile-root.app-logged-in {
+			height: auto;
+			max-height: none;
+			overflow: visible;
 		}
 
 		/* Sleek Unified 1-Tier Desktop Navbar */
@@ -6091,10 +12436,14 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			font-size: 1.25rem;
 		}
 		.header-inner-shell .header-tier-tabs {
+			display: block;
 			order: 2;
 			flex: 0 1 auto;
 			width: auto;
 			padding: 0;
+		}
+		.mobile-bottom-nav {
+			display: none !important;
 		}
 		.modern-segment-bar {
 			min-width: 380px;
@@ -6161,6 +12510,9 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			font-size: 0.82rem;
 			font-weight: 800;
 		}
+		.desktop-pro-pill {
+			display: inline-flex;
+		}
 
 		/* Main container expansive desktop width */
 		.app-main {
@@ -6168,6 +12520,8 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			width: 100%;
 			margin: 0 auto;
 			padding: 1.25rem 2rem 2.5rem;
+			overflow: visible;
+			height: auto;
 		}
 
 		/* ALERTS DESKTOP */
@@ -6261,7 +12615,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			align-items: center;
 			gap: 0.45rem;
 			color: #231f1c;
-			font-family: 'Outfit', sans-serif;
+			font-family: "Outfit", sans-serif;
 			font-weight: 700;
 			font-size: 0.95rem;
 		}
@@ -6381,7 +12735,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		.cstat-net-val {
 			font-size: 1.15rem;
 			font-weight: 800;
-			font-family: 'Outfit', sans-serif;
+			font-family: "Outfit", sans-serif;
 		}
 
 		.companion-today-row {
@@ -6448,7 +12802,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			font-weight: 800;
 			white-space: nowrap;
 		}
-		
+
 		.companion-empty {
 			font-size: 0.82rem;
 			color: #7c746a;
@@ -6544,7 +12898,9 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			padding: 1.25rem;
 			border-radius: 16px;
 			box-shadow: 0 2px 8px rgba(35, 31, 28, 0.04);
-			transition: transform 0.15s, box-shadow 0.15s;
+			transition:
+				transform 0.15s,
+				box-shadow 0.15s;
 		}
 		.mobile-kpi-item:hover {
 			transform: translateY(-2px);
@@ -6607,7 +12963,10 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		}
 		.mobile-tx-entry {
 			border-radius: 14px;
-			transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+			transition:
+				transform 0.15s,
+				box-shadow 0.15s,
+				border-color 0.15s;
 		}
 		.mobile-tx-entry:hover {
 			transform: translateY(-2px);
@@ -6615,7 +12974,6 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			border-color: #059669;
 		}
 	}
-
 
 	/* Admin Header Button */
 	.btn-admin-header-link {
@@ -6726,4 +13084,516 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		background: #fffbeb;
 	}
 
+	/* ====================================================
+	   MULTI-DOMPET (WALLET & ACCOUNTS) STYLES
+	   ==================================================== */
+
+	/* SLIM CHAT ACTIVE FILTER STRIP */
+	.chat-active-filter-strip {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		background: #f0fdf4;
+		border-bottom: 1px solid #bbf7d0;
+		padding: 0.35rem 0.85rem;
+		font-size: 0.75rem;
+		color: #166534;
+		flex-shrink: 0;
+		gap: 0.5rem;
+	}
+	.caf-info {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.caf-icon {
+		font-size: 0.85rem;
+	}
+	.caf-bal {
+		font-size: 0.72rem;
+		color: #15803d;
+		font-family: "Outfit", sans-serif;
+		font-weight: 700;
+	}
+	.btn-caf-clear {
+		background: #ffffff;
+		border: 1px solid #86efac;
+		color: #166534;
+		font-size: 0.68rem;
+		font-weight: 700;
+		padding: 0.15rem 0.5rem;
+		border-radius: 9999px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+	.btn-caf-clear:active {
+		background: #dcfce7;
+	}
+
+	/* REPORT DOMPET HUB CARD */
+	.report-dompet-hub-card {
+		background: #ffffff;
+		border: 1px solid #e7dfd4;
+		border-radius: 14px;
+		padding: 0.85rem;
+		margin-bottom: 0.75rem;
+		box-shadow: 0 1px 4px rgba(35, 31, 28, 0.04);
+		display: flex;
+		flex-direction: column;
+		gap: 0.65rem;
+	}
+	.rdh-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+	.rdh-title-group {
+		display: flex;
+		flex-direction: column;
+		line-height: 1.1;
+	}
+	.rdh-badge {
+		font-size: 0.6rem;
+		font-weight: 800;
+		color: #2563eb;
+		letter-spacing: 0.05em;
+	}
+	.rdh-title {
+		font-size: 0.95rem;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+		color: #231f1c;
+		margin: 0;
+	}
+	.rdh-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+	.btn-rdh-act {
+		font-size: 0.72rem;
+		font-weight: 700;
+		padding: 0.25rem 0.55rem;
+		border-radius: 8px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		transition: all 0.15s;
+	}
+	.btn-rdh-trf {
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		color: #1d4ed8;
+	}
+	.btn-rdh-trf:hover {
+		background: #dbeafe;
+	}
+	.btn-rdh-add {
+		background: #f0fdf4;
+		border: 1px solid #bbf7d0;
+		color: #15803d;
+	}
+	.btn-rdh-add:hover {
+		background: #dcfce7;
+	}
+
+	.rdh-cards-scroll {
+		display: flex;
+		align-items: stretch;
+		gap: 0.5rem;
+		overflow-x: auto;
+		scrollbar-width: none;
+		-webkit-overflow-scrolling: touch;
+		padding-bottom: 2px;
+	}
+	.rdh-cards-scroll::-webkit-scrollbar {
+		display: none;
+	}
+
+	.rdh-card {
+		flex-shrink: 0;
+		min-width: 135px;
+		max-width: 165px;
+		background: #faf7f2;
+		border: 1.5px solid #e8dfd3;
+		border-radius: 12px;
+		padding: 0.55rem 0.7rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		cursor: pointer;
+		text-align: left;
+		transition: all 0.15s;
+	}
+	.rdh-card:hover {
+		border-color: #d4c8b8;
+		transform: translateY(-1px);
+	}
+	.rdh-card.active-filter {
+		background: #ffffff;
+		border-color: var(--card-color, #2563eb);
+		box-shadow: 0 3px 10px rgba(37, 99, 235, 0.15);
+		border-width: 2px;
+	}
+	.rdh-card.card-all.active-filter {
+		border-color: #059669;
+		box-shadow: 0 3px 10px rgba(5, 150, 105, 0.15);
+	}
+	.rdhc-top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+	.rdhc-badge {
+		font-size: 0.58rem;
+		font-weight: 800;
+		color: #059669;
+		background: #ecfdf5;
+		padding: 0.08rem 0.3rem;
+		border-radius: 4px;
+	}
+	.rdhc-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: #d4c8b8;
+	}
+	.rdhc-dot.dot-active {
+		background: #059669;
+	}
+	.rdhc-icon {
+		font-size: 1rem;
+	}
+	.rdhc-top-right {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+	.rdhc-tipe {
+		font-size: 0.58rem;
+		color: #787063;
+		background: #f5efe6;
+		padding: 0.06rem 0.25rem;
+		border-radius: 3px;
+		text-transform: uppercase;
+		font-weight: 700;
+	}
+	.rdhc-edit-btn {
+		background: none;
+		border: none;
+		font-size: 0.65rem;
+		opacity: 0.45;
+		cursor: pointer;
+		padding: 0;
+	}
+	.rdhc-edit-btn:hover {
+		opacity: 1;
+	}
+	.rdhc-name {
+		font-size: 0.78rem;
+		font-weight: 700;
+		color: #231f1c;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.rdhc-val {
+		font-size: 0.9rem;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+		color: #166534;
+		white-space: nowrap;
+	}
+
+	.rdh-filter-status-bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		padding: 0.35rem 0.65rem;
+		border-radius: 8px;
+		font-size: 0.72rem;
+		color: #1e40af;
+	}
+	.btn-rdh-reset {
+		background: #ffffff;
+		border: 1px solid #93c5fd;
+		color: #1d4ed8;
+		font-size: 0.68rem;
+		font-weight: 700;
+		padding: 0.15rem 0.45rem;
+		border-radius: 9999px;
+		cursor: pointer;
+	}
+
+	/* COMPANION SIDEBAR DOMPET CARD */
+	.companion-dompet-card {
+		border-left: 3px solid #2563eb;
+	}
+	.companion-dompet-hdr-acts {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+	}
+	.c-mini-act {
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		color: #1d4ed8;
+		font-size: 0.68rem;
+		font-weight: 700;
+		padding: 0.2rem 0.45rem;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+	.c-mini-act:hover {
+		background: #dbeafe;
+	}
+
+	.companion-total-balance-box {
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		padding: 0.5rem 0.65rem;
+		border-radius: 8px;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+	.ctb-lbl {
+		font-size: 0.72rem;
+		color: #64748b;
+		font-weight: 600;
+	}
+	.ctb-val {
+		font-size: 0.95rem;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+		color: #0f172a;
+	}
+
+	.companion-dompet-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		max-height: 190px;
+		overflow-y: auto;
+	}
+	.companion-dompet-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.4rem 0.55rem;
+		background: #ffffff;
+		border: 1px solid #ede8e1;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+	.companion-dompet-item:hover {
+		border-color: #cbd5e1;
+		background: #f8fafc;
+	}
+	.companion-dompet-item.active-filter {
+		border-color: #2563eb;
+		background: #eff6ff;
+	}
+	.cdi-left {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+	}
+	.cdi-icon {
+		font-size: 0.9rem;
+	}
+	.cdi-meta {
+		display: flex;
+		flex-direction: column;
+		line-height: 1.2;
+	}
+	.cdi-name {
+		font-size: 0.76rem;
+		font-weight: 700;
+		color: #231f1c;
+	}
+	.cdi-tipe {
+		font-size: 0.62rem;
+		color: #8c8479;
+		text-transform: uppercase;
+	}
+	.cdi-right {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+	.cdi-bal {
+		font-size: 0.8rem;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+		color: #166534;
+	}
+	.cdi-edit {
+		background: none;
+		border: none;
+		font-size: 0.65rem;
+		opacity: 0.4;
+		cursor: pointer;
+		padding: 0;
+	}
+	.cdi-edit:hover {
+		opacity: 1;
+	}
+
+	/* DOMPET MODAL PREVIEW CARD & FORM */
+	.dompet-modal-sheet,
+	.transfer-modal-sheet {
+		max-width: 520px;
+	}
+	.dompet-sheet-title-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+	.dompet-card-preview {
+		border-radius: 14px;
+		padding: 1rem 1.1rem;
+		color: #ffffff;
+		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		position: relative;
+		overflow: hidden;
+	}
+	.dcp-top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+	.dcp-icon {
+		font-size: 1.4rem;
+	}
+	.dcp-type-badge {
+		font-size: 0.65rem;
+		font-weight: 800;
+		background: rgba(255, 255, 255, 0.2);
+		padding: 0.15rem 0.45rem;
+		border-radius: 9999px;
+		letter-spacing: 0.05em;
+	}
+	.dcp-name {
+		font-size: 1.15rem;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+	}
+	.dcp-balance {
+		display: flex;
+		flex-direction: column;
+		line-height: 1.2;
+		margin-top: 0.2rem;
+	}
+	.dcp-bal-lbl {
+		font-size: 0.65rem;
+		opacity: 0.8;
+	}
+	.dcp-bal-val {
+		font-size: 1.25rem;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+	}
+	.dcp-acc {
+		font-size: 0.72rem;
+		opacity: 0.85;
+		letter-spacing: 0.06em;
+		font-family: monospace;
+	}
+
+	/* COLOR PRESET PICKER */
+	.color-preset-picker {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		flex-wrap: wrap;
+		padding: 0.35rem 0;
+	}
+	.color-dot {
+		width: 26px;
+		height: 26px;
+		border-radius: 50%;
+		border: 2px solid #ffffff;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: transform 0.1s;
+		padding: 0;
+	}
+	.color-dot:active {
+		transform: scale(0.9);
+	}
+	.color-dot.selected-color {
+		outline: 2.5px solid #231f1c;
+		transform: scale(1.08);
+	}
+	.color-native-input {
+		width: 26px;
+		height: 26px;
+		border-radius: 50%;
+		border: none;
+		cursor: pointer;
+		padding: 0;
+		background: none;
+	}
+
+	/* TRANSFER VISUAL FLOW */
+	.transfer-visual-flow {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		background: #fdfaf6;
+		border: 1.5px solid #e7ded2;
+		padding: 0.75rem 1rem;
+		border-radius: 12px;
+		gap: 0.75rem;
+	}
+	.tv-box {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+	}
+	.tv-lbl {
+		font-size: 0.68rem;
+		color: #8c8479;
+		text-transform: uppercase;
+		font-weight: 700;
+	}
+	.tv-val {
+		font-size: 0.9rem;
+		color: #231f1c;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+	}
+	.tv-arrow {
+		color: #2563eb;
+		background: #eff6ff;
+		padding: 0.4rem;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+	.nominal-preview-tag {
+		font-size: 0.8rem;
+		color: #059669;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+		margin-top: 0.25rem;
+	}
 </style>

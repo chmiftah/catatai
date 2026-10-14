@@ -18,15 +18,22 @@ export async function GET({ url, cookies }) {
 		const kategori = url.searchParams.get('kategori');
 		const tipe = url.searchParams.get('tipe');
 		const cari = url.searchParams.get('q');
+		const dompetId = url.searchParams.get('dompet_id');
+		const dompet = url.searchParams.get('dompet');
 
 		const hasRange = Boolean(dariTanggal || sampaiTanggal);
+		const dompetCond = dompetId
+			? sql`t.dompet_id = ${Number(dompetId)}`
+			: dompet && dompet !== 'semua'
+			? sql`(LOWER(COALESCE(t.dompet, '')) = LOWER(${dompet}) OR LOWER(COALESCE(t.metode_bayar, '')) = LOWER(${dompet}))`
+			: sql`1=1`;
 
 		// Ambil transaksi milik user yang sedang login
 		let rawList = await sql`
 			SELECT 
 				t.id, t.user_id, t.tipe, t.toko, t.tanggal::text as tanggal, t.waktu::text as waktu, 
-				t.kategori, t.metode_bayar, t.subtotal::float as subtotal, 
-				t.pajak::float as pajak, t.diskon::float as diskon, 
+				t.kategori, t.metode_bayar, t.dompet, t.dompet_id, t.subtotal::float as subtotal, 
+				t.pajak::float as pajak, diskon::float as diskon, 
 				t.total::float as total, t.gambar_url, t.catatan, t.dibuat,
 				COUNT(i.id)::int as jumlah_item
 			FROM transaksi t
@@ -39,6 +46,7 @@ export async function GET({ url, cookies }) {
 				AND (${!hasRange && tanggal ? sql`t.tanggal = ${tanggal}::date` : sql`1=1`})
 				AND (${kategori ? sql`t.kategori = ${kategori}` : sql`1=1`})
 				AND (${tipe ? sql`t.tipe = ${tipe}` : sql`1=1`})
+				AND (${dompetCond})
 			GROUP BY t.id
 			ORDER BY t.tanggal DESC, t.waktu DESC, t.id DESC
 		`;
@@ -68,6 +76,7 @@ export async function GET({ url, cookies }) {
 				AND (${sampaiTanggal ? sql`t.tanggal <= ${sampaiTanggal}::date` : sql`1=1`})
 				AND (${!hasRange && bulan ? sql`to_char(t.tanggal, 'YYYY-MM') = ${bulan}` : sql`1=1`})
 				AND (${!hasRange && tanggal ? sql`t.tanggal = ${tanggal}::date` : sql`1=1`})
+				AND (${dompetCond})
 		`;
 
 		// Rekap Harian untuk Grafik Tren milik user
@@ -84,6 +93,7 @@ export async function GET({ url, cookies }) {
 				AND (${sampaiTanggal ? sql`t.tanggal <= ${sampaiTanggal}::date` : sql`1=1`})
 				AND (${!hasRange && bulan ? sql`to_char(t.tanggal, 'YYYY-MM') = ${bulan}` : sql`1=1`})
 				AND (${!hasRange && tanggal ? sql`t.tanggal = ${tanggal}::date` : sql`1=1`})
+				AND (${dompetCond})
 			GROUP BY t.tanggal
 			ORDER BY t.tanggal ASC
 		`;
@@ -102,6 +112,7 @@ export async function GET({ url, cookies }) {
 				AND (${sampaiTanggal ? sql`t.tanggal <= ${sampaiTanggal}::date` : sql`1=1`})
 				AND (${!hasRange && bulan ? sql`to_char(t.tanggal, 'YYYY-MM') = ${bulan}` : sql`1=1`})
 				AND (${!hasRange && tanggal ? sql`t.tanggal = ${tanggal}::date` : sql`1=1`})
+				AND (${dompetCond})
 			GROUP BY t.kategori
 			ORDER BY total DESC
 		`;
@@ -185,13 +196,15 @@ export async function POST({ request, cookies }) {
 		const sql = await getDb();
 		const body = await request.json();
 
-		const {
+		let {
 			tipe = 'pengeluaran',
 			toko = '',
 			tanggal = new Date().toISOString().slice(0, 10),
 			waktu = new Date().toTimeString().slice(0, 8),
 			kategori = 'Lainnya',
 			metode_bayar = 'Tunai',
+			dompet = '',
+			dompet_id = null,
 			subtotal = 0,
 			pajak = 0,
 			diskon = 0,
@@ -200,6 +213,15 @@ export async function POST({ request, cookies }) {
 			catatan = '',
 			items = []
 		} = body;
+
+		if (!dompet && metode_bayar) dompet = metode_bayar;
+		if (!metode_bayar && dompet) metode_bayar = dompet;
+		if (!dompet) dompet = 'Tunai';
+
+		if (!dompet_id && dompet) {
+			const [foundD] = await sql`SELECT id FROM dompet WHERE user_id = ${user.id} AND LOWER(nama) = LOWER(${dompet}) LIMIT 1`;
+			if (foundD) dompet_id = foundD.id;
+		}
 
 		// Hitung total jika belum ada
 		const grandTotal = total > 0 ? total : Math.max(0, Number(subtotal) + Number(pajak) - Number(diskon));
@@ -212,10 +234,10 @@ export async function POST({ request, cookies }) {
 		// Insert ke transaksi dengan user_id terisolasi dan data terenkripsi
 		const [trx] = await sql`
 			INSERT INTO transaksi (
-				user_id, tipe, toko, tanggal, waktu, kategori, metode_bayar,
+				user_id, tipe, toko, tanggal, waktu, kategori, metode_bayar, dompet, dompet_id,
 				subtotal, pajak, diskon, total, gambar_url, catatan
 			) VALUES (
-				${user.id}, ${tipe}, ${encToko}, ${tanggal}::date, ${waktu}::time, ${kategori}, ${metode_bayar},
+				${user.id}, ${tipe}, ${encToko}, ${tanggal}::date, ${waktu}::time, ${kategori}, ${metode_bayar}, ${dompet}, ${dompet_id || null},
 				${subtotal}, ${pajak}, ${diskon}, ${grandTotal}, ${encGambarUrl}, ${encCatatan}
 			) RETURNING id
 		`;

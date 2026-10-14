@@ -37,9 +37,20 @@ export async function POST({ request, cookies }) {
 			}, { status: 403 });
 		}
 
+		const sql = await getDb();
+		const userDompet = await sql`SELECT id, nama, tipe FROM dompet WHERE user_id = ${user.id} ORDER BY id ASC`;
+		const dompetNames = userDompet.length > 0 
+			? userDompet.map((d) => d.nama).join(', ') 
+			: 'Tunai, Rekening Bank, E-Wallet';
+
 		const systemPrompt = `Kamu adalah CatatAi — asisten pintar pencatatan transaksi keuangan (PENGELUARAN & PEMASUKAN) dalam percakapan chat seperti WhatsApp.
 Pengguna yang sedang kamu layani bernama: ${user.nama}.
 Tanggal hari ini adalah: ${todayStr}, jam sekarang: ${timeStr}.
+DAFTAR DOMPET PENGGUNA TERSEDIA: [${dompetNames}]
+
+ATURAN DOMPET / METODE BAYAR:
+- Jika pengguna menyebutkan rekening atau dompet (contoh: "pake gopay", "transfer bca", "debit bri", "cash", "tunai", "dana", "shopeepay"), cocokkan dengan daftar dompet di atas. Masukkan nama yang paling sesuai ke properti "dompet" dan "metode_bayar".
+- Jika pengguna tidak menyebutkan secara spesifik, gunakan "Tunai".
 
 PENTING TENTANG JAWABAN TEKS:
 - JANGAN menuliskan ulang rincian poin-poin bullet (* Tipe, * Sumber, * Kategori, dsb) di dalam "jawaban_teks", karena semua data tersebut SUDAH OTOMATIS DITAMPILKAN oleh sistem dalam bentuk kartu interaktif yang rapi di bawah pesanmu.
@@ -48,12 +59,12 @@ PENTING TENTANG JAWABAN TEKS:
   Contoh yang BURUK: Menuliskan daftar list panjang dengan tanda bintang di jawaban teks.
 
 ATURAN AKSI PENCATATAN (SANGAT PENTING):
-1. PENCATATAN TEKS LANGSUNG (TANPA FOTO NOTA):
-   - Jika pengguna mengetik teks pencatatan pengeluaran atau pemasukan (toleran terhadap typo seperti "sya abeli kopi 12k", "beli kopi 18k", "makan siang 35rb", "isi bensin 50k", "gaji masuk 10jt", dsb):
+1. PENCATATAN TEKS ATAU SUARA (VOICE NOTE LANGSUNG, TANPA FOTO NOTA):
+   - Jika pengguna mengetik pesan teks ATAU mengirimkan rekaman suara (voice note) pencatatan pengeluaran atau pemasukan (sangat toleran terhadap bahasa percakapan sehari-hari / lisan seperti "tadi barusan beli kopi 18 ribu pake gopay", "makan siang nasi padang 25 ribu tunai", "isi bensin pertamax 50rb di spbu pake bca", "beli token listrik 100k", "dapet transferan gaji 10jt", dsb):
      -> AKSI HARUS: "konfirmasi_simpan"!
      -> KARENA PENGGUNA INGIN TRANSAKSI LANGSUNG TERCATAT KE DATABASE TANPA PERLU DUA KALI KONFIRMASI.
      -> Jawaban singkat: "Siap, ${user.nama}! [Pengeluaran / Pemasukan] [keterangan barang/toko] sebesar Rp [nominal] sudah langsung dicatat ke rekap keuangan! 🎉"
-   - Contoh nominal: "12k" = 12000, "35rb" = 35000, "1.5jt" = 1500000, "10jt" = 10000000.
+   - Contoh nominal: "12k" = 12000, "35rb" = 35000, "1.5jt" = 1500000, "10jt" = 10000000, "seratus ribu" = 100000, "dua puluh lima ribu" = 25000.
 
 2. EKSTRAKSI FOTO NOTA / STRUK GAMBAR:
    - HANYA JIKA pengguna mengirimkan FOTO NOTA / GAMBAR (karena struk belanja bisa panjang dan perlu dicek item-itemnya):
@@ -86,6 +97,7 @@ OUTPUT HARUS HANYA JSON MURNI TANPA MARKDOWN BACKTICKS, TANPA PENJELASAN DI LUAR
     "tanggal": "${todayStr}",
     "waktu": "${timeStr}",
     "kategori": "Makanan & Minuman | Belanja Harian | Bahan Baku | Operasional | Transportasi | Utilitas & Tagihan | Elektronik & Alat | Gaji & Upah | Penjualan Produk | Lainnya",
+    "dompet": "Nama dompet yang digunakan (pilih dari: ${dompetNames})",
     "metode_bayar": "Tunai | QRIS | Transfer | Kartu Debit | Kartu Kredit",
     "subtotal": 0,
     "pajak": 0,
@@ -169,11 +181,20 @@ OUTPUT HARUS HANYA JSON MURNI TANPA MARKDOWN BACKTICKS, TANPA PENJELASAN DI LUAR
 			parsed.transaksi.gambar_url = currentDraft.gambar_url;
 		}
 
-		const sql = await getDb();
 		let savedId = null;
 		if (parsed.aksi === 'konfirmasi_simpan' && parsed.transaksi) {
 			const t = parsed.transaksi;
 			const grandTotal = t.total > 0 ? t.total : Math.max(0, (Number(t.subtotal) || 0) + (Number(t.pajak) || 0) - (Number(t.diskon) || 0));
+
+			const dompetName = t.dompet || t.metode_bayar || 'Tunai';
+			let matchedDompetId = null;
+			const matched = userDompet.find((d) => d.nama.toLowerCase() === dompetName.toLowerCase());
+			if (matched) {
+				matchedDompetId = matched.id;
+			} else if (userDompet.length > 0) {
+				const fallback = userDompet.find((d) => d.tipe === 'cash') || userDompet[0];
+				matchedDompetId = fallback?.id || null;
+			}
 
 			const encToko = encrypt(t.toko || '');
 			const encCatatan = encrypt(t.catatan || '');
@@ -181,11 +202,12 @@ OUTPUT HARUS HANYA JSON MURNI TANPA MARKDOWN BACKTICKS, TANPA PENJELASAN DI LUAR
 
 			const [saved] = await sql`
 				INSERT INTO transaksi (
-					user_id, tipe, toko, tanggal, waktu, kategori, metode_bayar,
+					user_id, tipe, toko, tanggal, waktu, kategori, metode_bayar, dompet, dompet_id,
 					subtotal, pajak, diskon, total, gambar_url, catatan
 				) VALUES (
 					${user.id}, ${t.tipe || 'pengeluaran'}, ${encToko}, ${t.tanggal || todayStr}::date, 
-					${t.waktu || timeStr}::time, ${t.kategori || 'Lainnya'}, ${t.metode_bayar || 'Tunai'},
+					${t.waktu || timeStr}::time, ${t.kategori || 'Lainnya'}, ${t.metode_bayar || dompetName},
+					${dompetName}, ${matchedDompetId},
 					${t.subtotal || grandTotal}, ${t.pajak || 0}, ${t.diskon || 0}, ${grandTotal}, 
 					${encGambarUrl}, ${encCatatan}
 				) RETURNING id

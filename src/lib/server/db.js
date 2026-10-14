@@ -62,6 +62,26 @@ export async function getDb() {
 		await sql`create index if not exists idx_transaksi_user_id on transaksi (user_id)`;
 		await sql`create index if not exists idx_transaksi_tanggal on transaksi (tanggal desc)`;
 		await sql`create index if not exists idx_transaksi_item_transaksi_id on transaksi_item (transaksi_id)`;
+
+		// Tabel Dompet / Rekening (Multi-Dompet)
+		await sql`create table if not exists dompet (
+			id serial primary key,
+			user_id int not null references users(id) on delete cascade,
+			nama text not null,
+			tipe text not null default 'bank',
+			saldo_awal numeric(14, 2) not null default 0,
+			warna text not null default '#2563eb',
+			ikon text not null default 'wallet',
+			nomor_rekening text default '',
+			catatan text default '',
+			dibuat timestamptz not null default now()
+		)`;
+		await sql`create index if not exists idx_dompet_user_id on dompet (user_id)`;
+
+		// Migrasi kolom dompet & dompet_id pada tabel transaksi
+		await sql`alter table transaksi add column if not exists dompet_id int references dompet(id) on delete set null`;
+		await sql`alter table transaksi add column if not exists dompet text default 'Tunai'`;
+		await sql`create index if not exists idx_transaksi_dompet_id on transaksi (dompet_id)`;
 	})().catch((e) => {
 		ready = undefined;
 		throw e;
