@@ -111,6 +111,9 @@
 	let deferredInstallPrompt = $state(null);
 	let canInstallPWA = $state(false);
 	let isAppStandalone = $state(false);
+	let showInstallBanner = $state(false);
+	let showIosInstallGuide = $state(false);
+	let isIosDevice = $state(false);
 
 	// Navigasi Utama: Hanya 2 Tombol ('chat' | 'report')
 	let activeView = $state("chat"); // 'chat' (default) | 'report'
@@ -898,6 +901,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			if (outcome === "accepted") {
 				canInstallPWA = false;
 				isAppStandalone = true;
+				showInstallBanner = false;
 				successMsg = "CatatAi berhasil dipasang di perangkat Anda!";
 				setTimeout(() => {
 					successMsg = "";
@@ -905,9 +909,16 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			}
 			deferredInstallPrompt = null;
 		} else {
-			alert(
-				'📱 Cara Memasang CatatAi ke Layar Utama:\n\n• Di iPhone/iPad (Safari): Tekan ikon Bagikan (Share) ⎋ di bawah, lalu pilih "Tambah ke Layar Utama" (+).\n• Di Android (Chrome): Tekan menu titik tiga (⋮) di kanan atas, lalu pilih "Instal aplikasi" atau "Tambahkan ke Layar Utama".\n• Di Komputer (Chrome/Edge): Tekan ikon Instal di ujung kanan address bar browser.',
-			);
+			// iOS Safari or manual install guide
+			showInstallBanner = false;
+			showIosInstallGuide = true;
+		}
+	}
+
+	function dismissInstallBanner() {
+		showInstallBanner = false;
+		if (typeof window !== "undefined") {
+			localStorage.setItem("catatai_pwa_dismissed", Date.now().toString());
 		}
 	}
 
@@ -996,27 +1007,58 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	onMount(() => {
 		checkAuth();
 
-		// Detect standalone display mode (PWA installed)
+		// Detect standalone display mode (PWA already installed)
 		if (typeof window !== "undefined") {
-			if (
+			const isStandalone =
 				window.matchMedia("(display-mode: standalone)").matches ||
-				("standalone" in navigator && navigator.standalone)
-			) {
+				("standalone" in navigator && navigator.standalone);
+
+			if (isStandalone) {
 				isAppStandalone = true;
+				showInstallBanner = false;
+			} else {
+				// Detect mobile device (Android/iOS phone or narrow viewport)
+				const isMobile =
+					/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+					window.innerWidth <= 768;
+				isIosDevice = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+				const dismissedAt = localStorage.getItem("catatai_pwa_dismissed");
+				const isDismissedRecently =
+					dismissedAt &&
+					Date.now() - Number(dismissedAt) < 24 * 60 * 60 * 1000;
+
+				if (isMobile && !isDismissedRecently) {
+					// Show mobile install banner after short delay
+					setTimeout(() => {
+						if (!isAppStandalone) {
+							showInstallBanner = true;
+						}
+					}, 1200);
+				}
 			}
 		}
 
-		// Listen to PWA install prompt
+		// Listen to PWA install prompt (Chrome Android, Edge, etc.)
 		window.addEventListener("beforeinstallprompt", (e) => {
 			e.preventDefault();
 			deferredInstallPrompt = e;
 			canInstallPWA = true;
+			if (!isAppStandalone) {
+				showInstallBanner = true;
+			}
 		});
 
 		window.addEventListener("appinstalled", () => {
 			isAppStandalone = true;
 			canInstallPWA = false;
+			showInstallBanner = false;
+			showIosInstallGuide = false;
 			deferredInstallPrompt = null;
+			successMsg = "CatatAi berhasil dipasang di layar utama HP Anda!";
+			setTimeout(() => {
+				successMsg = "";
+			}, 4000);
 		});
 	});
 
@@ -8505,6 +8547,212 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			</div>
 		{/if}
 	{/if}
+
+	<!-- ==============================================
+	     PWA MOBILE INSTALL POPUP BANNER
+	     ============================================== -->
+	{#if showInstallBanner && !isAppStandalone}
+		<div class="pwa-install-banner-wrap {currentUser ? 'has-bottom-nav' : ''}">
+			<div class="pwa-install-card">
+				<button
+					type="button"
+					class="pwa-banner-close"
+					onclick={dismissInstallBanner}
+					aria-label="Tutup Banner"
+				>
+					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+						<line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+					</svg>
+				</button>
+				<div class="pwa-card-top">
+					<div class="pwa-app-icon">
+						<svg
+							width="22"
+							height="22"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2.3"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<path
+								d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"
+							/>
+						</svg>
+					</div>
+					<div class="pwa-card-info">
+						<div class="pwa-title-row">
+							<span class="pwa-card-title">Pasang CatatAi</span>
+							<span class="pwa-native-pill">Gratis</span>
+						</div>
+						<p class="pwa-card-sub">
+							Akses instan dari layar utama HP, bebas repot & hemat kuota
+						</p>
+					</div>
+				</div>
+				<div class="pwa-card-actions">
+					<button
+						type="button"
+						class="btn-pwa-dismiss"
+						onclick={dismissInstallBanner}
+					>
+						Nanti Saja
+					</button>
+					<button
+						type="button"
+						class="btn-pwa-install"
+						onclick={triggerPWAInstall}
+					>
+						<svg
+							width="15"
+							height="15"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2.4"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+							<polyline points="7 10 12 15 17 10" />
+							<line x1="12" y1="15" x2="12" y2="3" />
+						</svg>
+						<span>Pasang di HP ✨</span>
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- ==============================================
+	     PWA IOS & MANUAL INSTALL GUIDE BOTTOM SHEET
+	     ============================================== -->
+	{#if showIosInstallGuide}
+		<div
+			class="bottom-sheet-backdrop"
+			onclick={() => (showIosInstallGuide = false)}
+			onkeydown={(e) => {
+				if (e.key === "Escape") showIosInstallGuide = false;
+			}}
+			role="presentation"
+		>
+			<div
+				class="bottom-sheet-sheet pwa-guide-sheet"
+				onclick={(e) => e.stopPropagation()}
+				onkeydown={(e) => e.stopPropagation()}
+				role="dialog"
+				tabindex="-1"
+			>
+				<div class="sheet-grabber-bar"></div>
+				<div class="sheet-header">
+					<div class="pwa-guide-header-title">
+						<span class="pwa-guide-badge">PANDUAN INSTAL</span>
+						<h3 class="sheet-title">Pasang di Layar Utama HP</h3>
+					</div>
+					<button
+						class="sheet-close-btn"
+						aria-label="Tutup"
+						onclick={() => (showIosInstallGuide = false)}
+					>
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2.2"
+						>
+							<line x1="18" y1="6" x2="6" y2="18" /><line
+								x1="6"
+								y1="6"
+								x2="18"
+								y2="18"
+							/>
+						</svg>
+					</button>
+				</div>
+
+				<div class="sheet-body-scroll pwa-guide-body">
+					<div class="pwa-guide-hero">
+						<div class="pwa-hero-gem">
+							<svg
+								width="28"
+								height="28"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.3"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path
+									d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"
+								/>
+							</svg>
+						</div>
+						<div class="pwa-hero-text">
+							<h4>CatatAi Mobile Web App</h4>
+							<p>Aplikasi ringan tanpa perlu download dari App Store / Play Store</p>
+						</div>
+					</div>
+
+					<div class="pwa-guide-steps">
+						<div class="pwa-step-card">
+							<div class="step-num-pill">1</div>
+							<div class="step-content">
+								<p class="step-text">
+									Tekan tombol <strong>Bagikan (Share)</strong>
+									<span class="ios-share-badge">
+										<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+											<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+											<polyline points="16 6 12 2 8 6" />
+											<line x1="12" y1="2" x2="12" y2="15" />
+										</svg>
+									</span>
+									di bar bawah Safari atau menu browser.
+								</p>
+							</div>
+						</div>
+
+						<div class="pwa-step-card">
+							<div class="step-num-pill">2</div>
+							<div class="step-content">
+								<p class="step-text">
+									Gulir ke bawah lalu pilih opsi <strong>"Tambah ke Layar Utama" (Add to Home Screen)</strong>
+									<span class="step-icon-badge">➕</span>
+								</p>
+							</div>
+						</div>
+
+						<div class="pwa-step-card">
+							<div class="step-num-pill">3</div>
+							<div class="step-content">
+								<p class="step-text">
+									Ketuk tombol <strong>"Tambah" (Add)</strong> di pojok kanan atas layar. Selesai! 🎉
+								</p>
+							</div>
+						</div>
+					</div>
+
+					<div class="pwa-guide-footer-box">
+						<span class="pgf-icon">💡</span>
+						<span class="pgf-text">
+							CatatAi langsung tampil di home screen HP Anda seperti aplikasi bawaan dan bisa dibuka full-screen tanpa address bar browser!
+						</span>
+					</div>
+
+					<button
+						type="button"
+						class="btn-pwa-guide-done"
+						onclick={() => (showIosInstallGuide = false)}
+					>
+						Siap, Saya Pasang Sekarang 👍
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -12284,6 +12532,302 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		justify-content: center;
 		color: #7c746a;
 		padding: 4px;
+	}
+
+	/* ====================================================
+	   PWA MOBILE INSTALL POPUP BANNER & GUIDE SHEET
+	   ==================================================== */
+	.pwa-install-banner-wrap {
+		position: fixed;
+		left: 0.85rem;
+		right: 0.85rem;
+		bottom: max(16px, env(safe-area-inset-bottom, 16px));
+		z-index: 80;
+		max-width: 440px;
+		margin: 0 auto;
+		animation: pwaBannerSlide 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+		pointer-events: auto;
+	}
+	.pwa-install-banner-wrap.has-bottom-nav {
+		bottom: calc(66px + env(safe-area-inset-bottom, 8px));
+	}
+	@keyframes pwaBannerSlide {
+		from {
+			opacity: 0;
+			transform: translateY(24px) scale(0.96);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
+	}
+	.pwa-install-card {
+		background: #ffffff;
+		border: 1.5px solid #ded5c8;
+		border-radius: 18px;
+		box-shadow: 0 12px 36px rgba(35, 31, 28, 0.16), 0 2px 8px rgba(35, 31, 28, 0.08);
+		padding: 0.85rem 1rem;
+		position: relative;
+	}
+	.pwa-banner-close {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		width: 24px;
+		height: 24px;
+		border-radius: 50%;
+		background: #f4ede3;
+		color: #787063;
+		border: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: all 0.15s;
+		padding: 0;
+	}
+	.pwa-banner-close:active {
+		background: #e5ded2;
+		transform: scale(0.9);
+	}
+	.pwa-card-top {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-bottom: 0.75rem;
+		padding-right: 1.8rem;
+	}
+	.pwa-app-icon {
+		width: 44px;
+		height: 44px;
+		border-radius: 12px;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: #ffffff;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 3px 10px rgba(5, 150, 105, 0.35);
+		flex-shrink: 0;
+	}
+	.pwa-card-info {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.pwa-title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+	}
+	.pwa-card-title {
+		font-size: 0.95rem;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+		color: #231f1c;
+		margin: 0;
+		line-height: 1.2;
+	}
+	.pwa-native-pill {
+		font-size: 0.62rem;
+		font-weight: 800;
+		background: #e6f4ea;
+		color: #059669;
+		padding: 1px 6px;
+		border-radius: 9999px;
+		letter-spacing: 0.02em;
+	}
+	.pwa-card-sub {
+		font-size: 0.75rem;
+		color: #787063;
+		line-height: 1.35;
+		margin: 0;
+	}
+	.pwa-card-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.btn-pwa-dismiss {
+		flex: 1;
+		padding: 0.55rem 0.8rem;
+		background: #f5f0e8;
+		color: #645c52;
+		border-radius: 10px;
+		font-weight: 700;
+		font-size: 0.78rem;
+		text-align: center;
+		border: 1px solid #e7ded2;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+	.btn-pwa-dismiss:active {
+		background: #e8ded0;
+	}
+	.btn-pwa-install {
+		flex: 2;
+		padding: 0.55rem 0.9rem;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: #ffffff;
+		border-radius: 10px;
+		font-weight: 800;
+		font-size: 0.82rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4rem;
+		border: none;
+		cursor: pointer;
+		box-shadow: 0 3px 10px rgba(5, 150, 105, 0.35);
+		transition: transform 0.15s, box-shadow 0.15s;
+	}
+	.btn-pwa-install:active {
+		transform: scale(0.96);
+	}
+
+	/* PWA GUIDE SHEET */
+	.pwa-guide-sheet {
+		max-width: 520px;
+	}
+	.pwa-guide-header-title {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+	.pwa-guide-badge {
+		font-size: 0.65rem;
+		font-weight: 800;
+		color: #059669;
+		letter-spacing: 0.05em;
+	}
+	.pwa-guide-body {
+		padding: 1rem 1.1rem 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+	.pwa-guide-hero {
+		background: #fdfaf6;
+		border: 1.5px solid #ded5c8;
+		border-radius: 14px;
+		padding: 0.85rem 1rem;
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+	.pwa-hero-gem {
+		width: 44px;
+		height: 44px;
+		border-radius: 12px;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: #ffffff;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 3px 8px rgba(5, 150, 105, 0.3);
+		flex-shrink: 0;
+	}
+	.pwa-hero-text h4 {
+		font-size: 0.95rem;
+		font-weight: 800;
+		font-family: "Outfit", sans-serif;
+		color: #231f1c;
+		margin: 0;
+	}
+	.pwa-hero-text p {
+		font-size: 0.76rem;
+		color: #787063;
+		margin: 0;
+	}
+	.pwa-guide-steps {
+		display: flex;
+		flex-direction: column;
+		gap: 0.65rem;
+	}
+	.pwa-step-card {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		background: #ffffff;
+		border: 1px solid #ebd9c8;
+		border-radius: 12px;
+		padding: 0.75rem 0.85rem;
+		box-shadow: 0 1px 3px rgba(35, 31, 28, 0.03);
+	}
+	.step-num-pill {
+		width: 24px;
+		height: 24px;
+		border-radius: 50%;
+		background: #059669;
+		color: #ffffff;
+		font-weight: 800;
+		font-size: 0.75rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+	.step-content {
+		flex: 1;
+	}
+	.step-text {
+		font-size: 0.84rem;
+		color: #383129;
+		line-height: 1.45;
+		margin: 0;
+	}
+	.ios-share-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 2px 5px;
+		background: #e0f2fe;
+		color: #0284c7;
+		border-radius: 6px;
+		vertical-align: middle;
+		margin: 0 2px;
+	}
+	.step-icon-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.85rem;
+		vertical-align: middle;
+	}
+	.pwa-guide-footer-box {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.6rem;
+		background: #e6f4ea;
+		border: 1px solid #a7f3d0;
+		border-radius: 12px;
+		padding: 0.75rem 0.85rem;
+	}
+	.pgf-icon {
+		font-size: 1rem;
+		flex-shrink: 0;
+	}
+	.pgf-text {
+		font-size: 0.78rem;
+		color: #065f46;
+		line-height: 1.4;
+	}
+	.btn-pwa-guide-done {
+		width: 100%;
+		padding: 0.85rem 1rem;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: #ffffff;
+		border-radius: 12px;
+		font-weight: 800;
+		font-size: 0.9rem;
+		border: none;
+		cursor: pointer;
+		box-shadow: 0 4px 12px rgba(5, 150, 105, 0.35);
+		transition: transform 0.15s;
+		text-align: center;
+	}
+	.btn-pwa-guide-done:active {
+		transform: scale(0.97);
 	}
 
 	.sheet-body-scroll {
