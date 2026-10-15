@@ -6999,6 +6999,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 
 		<!-- MOBILE BOTTOM NAVIGATION BAR (NATIVE APP EXPERIENCE) -->
 		<nav class="mobile-bottom-nav" aria-label="Navigasi Utama">
+			<!-- TAB 1: CHAT AI -->
 			<button
 				type="button"
 				class="mob-nav-btn {activeView === 'chat' ? 'active' : ''}"
@@ -7013,8 +7014,8 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			>
 				<div class="mob-nav-icon-wrap">
 					<svg
-						width="20"
-						height="20"
+						width="19"
+						height="19"
 						viewBox="0 0 24 24"
 						fill="none"
 						stroke="currentColor"
@@ -7027,9 +7028,10 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						/>
 					</svg>
 				</div>
-				<span class="mob-nav-label">Chat Asisten</span>
+				<span class="mob-nav-label">Chat</span>
 			</button>
 
+			<!-- TAB 2: LAPORAN & REKAP -->
 			<button
 				type="button"
 				class="mob-nav-btn {activeView === 'report' ? 'active' : ''}"
@@ -7037,8 +7039,8 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			>
 				<div class="mob-nav-icon-wrap">
 					<svg
-						width="20"
-						height="20"
+						width="19"
+						height="19"
 						viewBox="0 0 24 24"
 						fill="none"
 						stroke="currentColor"
@@ -7051,11 +7053,55 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						/><path d="M8 17v-3" />
 					</svg>
 					{#if transaksiList.length > 0}
-						<span class="mob-nav-badge">{transaksiList.length}</span
-						>
+						<span class="mob-nav-badge">{transaksiList.length > 99 ? '99+' : transaksiList.length}</span>
 					{/if}
 				</div>
-				<span class="mob-nav-label">Report & Rekap</span>
+				<span class="mob-nav-label">Laporan</span>
+			</button>
+
+			<!-- TAB 3: CENTER QUICK ADD (+) -->
+			<button
+				type="button"
+				class="mob-nav-btn mob-nav-btn-center"
+				onclick={() => {
+					resetForm();
+					showModalTambah = true;
+				}}
+				aria-label="Catat Transaksi Cepat"
+			>
+				<div class="mob-fab-pill">
+					<svg
+						width="21"
+						height="21"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.6"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
+						<line x1="12" y1="5" x2="12" y2="19" />
+						<line x1="5" y1="12" x2="19" y2="12" />
+					</svg>
+				</div>
+				<span class="mob-nav-label">Catat</span>
+			</button>
+
+			<!-- TAB 4: AKUN & PENGATURAN -->
+			<button
+				type="button"
+				class="mob-nav-btn {showProfileModal ? 'active' : ''}"
+				onclick={() => (showProfileModal = true)}
+			>
+				<div class="mob-nav-icon-wrap">
+					<div class="mob-nav-avatar">
+						{currentUser?.nama ? currentUser.nama.charAt(0).toUpperCase() : 'U'}
+						{#if currentUser?.tier === "pro"}
+							<span class="mob-nav-pro-dot" title="CatatAi PRO">⭐</span>
+						{/if}
+					</div>
+				</div>
+				<span class="mob-nav-label">Akun</span>
 			</button>
 		</nav>
 
@@ -11113,14 +11159,14 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	/* STICKY BOTTOM INPUT BAR */
 	.chat-bottom-dock {
 		background: #faf6f0;
-		border-top: 1px solid #e6ded3;
-		padding-bottom: 0.25rem;
+		border-top: 1px solid #ebd9c8;
+		padding-bottom: 0;
 	}
 	.chat-quick-shortcuts {
 		display: flex;
 		align-items: center;
 		gap: 0.4rem;
-		padding: 0.45rem 0.75rem 0.15rem;
+		padding: 0.35rem 0.75rem 0.1rem;
 		overflow-x: auto;
 		-webkit-overflow-scrolling: touch;
 		scrollbar-width: none;
@@ -11158,7 +11204,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		opacity: 0.45;
 	}
 	.dock-form-row {
-		padding: 0.55rem 0.75rem;
+		padding: 0.45rem 0.75rem;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
@@ -11385,7 +11431,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		height: 100%;
 		overflow-y: auto;
 		-webkit-overflow-scrolling: touch;
-		padding: 0.85rem 0.85rem 2.5rem;
+		padding: 0.85rem 0.85rem 3.5rem;
 		display: flex;
 		flex-direction: column;
 		gap: 0.85rem;
@@ -12529,68 +12575,145 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	.mobile-bottom-nav {
 		flex: 0 0 auto;
 		width: 100%;
-		height: 52px;
-		background: rgba(250, 246, 240, 0.98);
-		backdrop-filter: blur(14px);
-		-webkit-backdrop-filter: blur(14px);
-		border-top: 1px solid #e6ded3;
-		display: flex;
+		min-height: 58px;
+		height: auto;
+		background: rgba(250, 246, 240, 0.96);
+		backdrop-filter: blur(20px);
+		-webkit-backdrop-filter: blur(20px);
+		border-top: 1px solid #ded5c8;
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
 		align-items: center;
-		justify-content: space-around;
-		padding: 0 0.5rem env(safe-area-inset-bottom, 0px);
+		justify-items: center;
+		padding: 5px 0.5rem max(8px, env(safe-area-inset-bottom, 8px));
 		z-index: 60;
-		box-shadow: 0 -2px 10px rgba(35, 31, 28, 0.04);
+		box-shadow: 0 -4px 18px rgba(35, 31, 28, 0.05);
 	}
 	.mob-nav-btn {
-		flex: 1;
+		width: 100%;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 2px;
+		gap: 3px;
 		background: transparent;
 		border: none;
 		color: #787063;
-		padding: 4px 0;
+		padding: 4px 1px;
 		cursor: pointer;
-		transition: all 0.15s ease;
+		transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 		position: relative;
 		font-family: inherit;
+		border-radius: 10px;
+		-webkit-tap-highlight-color: transparent;
+	}
+	.mob-nav-btn:active {
+		transform: scale(0.92);
 	}
 	.mob-nav-icon-wrap {
 		position: relative;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
+		width: 34px;
+		height: 26px;
+		border-radius: 12px;
+		transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 	.mob-nav-label {
-		font-size: 0.7rem;
+		font-size: 0.67rem;
 		font-weight: 600;
 		line-height: 1.1;
-		transition: color 0.15s ease;
+		transition: color 0.15s ease, font-weight 0.15s ease;
+		letter-spacing: -0.01em;
+		white-space: nowrap;
 	}
 	.mob-nav-btn.active {
 		color: #059669;
 	}
+	.mob-nav-btn.active .mob-nav-icon-wrap {
+		background: rgba(5, 150, 105, 0.12);
+		color: #059669;
+	}
 	.mob-nav-btn.active .mob-nav-label {
 		font-weight: 800;
+		color: #059669;
 	}
 	.mob-nav-btn.active svg {
-		transform: translateY(-1px);
 		stroke-width: 2.3;
 	}
+
+	/* CENTER QUICK ADD FAB BUTTON */
+	.mob-nav-btn-center {
+		position: relative;
+		top: -6px;
+	}
+	.mob-fab-pill {
+		width: 44px;
+		height: 44px;
+		border-radius: 50%;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: #ffffff;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 4px 14px rgba(5, 150, 105, 0.38), 0 1px 3px rgba(35, 31, 28, 0.1);
+		transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s ease;
+		border: 2.5px solid #faf6f0;
+	}
+	.mob-nav-btn-center:active .mob-fab-pill {
+		transform: scale(0.9) translateY(2px);
+		box-shadow: 0 2px 8px rgba(5, 150, 105, 0.3);
+	}
+	.mob-nav-btn-center .mob-nav-label {
+		font-weight: 800;
+		color: #059669;
+		margin-top: -2px;
+	}
+
+	/* NOTIFICATION BADGE */
 	.mob-nav-badge {
 		position: absolute;
-		top: -4px;
-		right: -10px;
+		top: -3px;
+		right: -4px;
 		background: #059669;
 		color: #ffffff;
-		font-size: 0.62rem;
+		font-size: 0.58rem;
 		font-weight: 800;
-		padding: 1px 5px;
+		min-width: 16px;
+		height: 16px;
+		padding: 0 4px;
 		border-radius: 9999px;
-		line-height: 1.2;
-		box-shadow: 0 1px 3px rgba(5, 150, 105, 0.35);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		line-height: 1;
+		box-shadow: 0 1px 3px rgba(5, 150, 105, 0.4);
+		border: 1.5px solid #faf6f0;
+	}
+
+	/* MINI AVATAR IN AKUN TAB */
+	.mob-nav-avatar {
+		width: 24px;
+		height: 24px;
+		border-radius: 50%;
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		color: #ffffff;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.72rem;
+		font-weight: 800;
+		position: relative;
+		border: 1.5px solid #ffffff;
+		box-shadow: 0 1px 3px rgba(5, 150, 105, 0.25);
+	}
+	.mob-nav-pro-dot {
+		position: absolute;
+		bottom: -4px;
+		right: -5px;
+		font-size: 8px;
+		line-height: 1;
 	}
 
 	/* Chat Layout wrapper base */
