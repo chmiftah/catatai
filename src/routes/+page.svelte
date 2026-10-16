@@ -524,6 +524,8 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	// Modal Manual / Edit
 	let showModalTambah = $state(false);
 	let modeInput = $state("manual");
+	let isEditingTransaksi = $state(false);
+	let editingTransaksiId = $state(null);
 
 	// Form Transaksi Manual / Edit
 	let form = $state({
@@ -1614,33 +1616,54 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		loading = true;
 		errorMsg = "";
 		try {
-			const res = await fetch("/api/transaksi", {
-				method: "POST",
+			const url =
+				isEditingTransaksi && editingTransaksiId
+					? `/api/transaksi/${editingTransaksiId}`
+					: "/api/transaksi";
+			const method =
+				isEditingTransaksi && editingTransaksiId ? "PUT" : "POST";
+
+			const res = await fetch(url, {
+				method,
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(form),
 			});
 			const resData = await res.json();
 			if (!res.ok)
-				throw new Error(resData.error || "Gagal menyimpan transaksi");
+				throw new Error(
+					resData.error ||
+						(isEditingTransaksi
+							? "Gagal memperbarui transaksi"
+							: "Gagal menyimpan transaksi"),
+				);
+
+			const wasEditing = isEditingTransaksi;
+			const updatedToko = form.toko;
+			const updatedTotal = form.total;
+			const updatedTipe = form.tipe;
 
 			showModalTambah = false;
 			resetForm();
 			await loadData();
-			successMsg = "Transaksi berhasil disimpan!";
+			successMsg = wasEditing
+				? "Transaksi berhasil diperbarui!"
+				: "Transaksi berhasil disimpan!";
 			setTimeout(() => {
 				successMsg = "";
 			}, 3500);
 
-			chatMessages = [
-				...chatMessages,
-				{
-					id: Date.now(),
-					role: "assistant",
-					content: `${form.tipe === "pemasukan" ? "Pemasukan" : "Pengeluaran"} "${form.toko || "Transaksi"}" sebesar ${formatRupiah(form.total)} telah berhasil disimpan!`,
-					time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`,
-				},
-			];
-			scrollToBottom();
+			if (!wasEditing) {
+				chatMessages = [
+					...chatMessages,
+					{
+						id: Date.now(),
+						role: "assistant",
+						content: `${updatedTipe === "pemasukan" ? "Pemasukan" : "Pengeluaran"} "${updatedToko || "Transaksi"}" sebesar ${formatRupiah(updatedTotal)} telah berhasil disimpan!`,
+						time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`,
+					},
+				];
+				scrollToBottom();
+			}
 		} catch (err) {
 			errorMsg = err.message;
 		} finally {
@@ -1649,6 +1672,8 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 	}
 
 	function resetForm() {
+		isEditingTransaksi = false;
+		editingTransaksiId = null;
 		const defaultDompet = dompetList[0]?.nama || "Tunai";
 		const defaultDompetId = dompetList[0]?.id || null;
 		form = {
@@ -1668,6 +1693,62 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			gambar_url: "",
 			items: [],
 		};
+	}
+
+	async function openEditTransaksi(trxOrId) {
+		if (!trxOrId) return;
+		showModalDetail = false;
+		const id = typeof trxOrId === "object" ? trxOrId.id : trxOrId;
+
+		try {
+			let fullTrx = typeof trxOrId === "object" && trxOrId.items ? trxOrId : null;
+			if (!fullTrx) {
+				loading = true;
+				const res = await fetch(`/api/transaksi/${id}`);
+				const data = await res.json();
+				if (!res.ok) throw new Error(data.error || "Gagal memuat transaksi");
+				fullTrx = data.transaksi;
+			}
+
+			isEditingTransaksi = true;
+			editingTransaksiId = fullTrx.id;
+			form = {
+				id: fullTrx.id,
+				tipe: fullTrx.tipe || "pengeluaran",
+				toko: fullTrx.toko || "",
+				tanggal: fullTrx.tanggal
+					? fullTrx.tanggal.slice(0, 10)
+					: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+				waktu: fullTrx.waktu
+					? fullTrx.waktu.slice(0, 8)
+					: `${pad(now.getHours())}:${pad(now.getMinutes())}:00`,
+				kategori: fullTrx.kategori || "Makanan & Minuman",
+				metode_bayar: fullTrx.metode_bayar || fullTrx.dompet || "Tunai",
+				dompet: fullTrx.dompet || fullTrx.metode_bayar || "Tunai",
+				dompet_id: fullTrx.dompet_id || null,
+				subtotal: fullTrx.subtotal || 0,
+				pajak: fullTrx.pajak || 0,
+				diskon: fullTrx.diskon || 0,
+				total: fullTrx.total || 0,
+				catatan: fullTrx.catatan || "",
+				gambar_url: fullTrx.gambar_url || "",
+				items: Array.isArray(fullTrx.items)
+					? fullTrx.items.map((i) => ({
+							id: i.id,
+							nama_barang: i.nama_barang || "",
+							qty: i.qty || 1,
+							harga_satuan: i.harga_satuan || 0,
+							subtotal: i.subtotal || 0,
+						}))
+					: [],
+			};
+			modeInput = "manual";
+			showModalTambah = true;
+		} catch (e) {
+			alert(e.message || "Gagal membuka form edit transaksi");
+		} finally {
+			loading = false;
+		}
 	}
 
 	async function openDetail(id) {
@@ -5154,18 +5235,48 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 														"-"} • {t.kategori}</span
 												>
 											</div>
-											<span
-												class="ctx-amt {t.tipe ===
-												'pemasukan'
-													? 'color-income'
-													: 'color-expense'}"
-											>
-												{t.tipe === "pemasukan"
-													? "+"
-													: "-"}{formatRupiah(
-													t.total,
-												)}
-											</span>
+											<div class="ctx-amount-cluster">
+												<span
+													class="ctx-amt {t.tipe ===
+													'pemasukan'
+														? 'color-income'
+														: 'color-expense'}"
+												>
+													{t.tipe === "pemasukan"
+														? "+"
+														: "-"}{formatRupiah(
+														t.total,
+													)}
+												</span>
+												<button
+													type="button"
+													class="btn-row-edit"
+													title="Edit Transaksi"
+													aria-label="Edit Transaksi"
+													onclick={(e) => {
+														e.stopPropagation();
+														openEditTransaksi(t);
+													}}
+												>
+													<svg
+														width="11"
+														height="11"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path
+															d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+														/>
+														<path
+															d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+														/>
+													</svg>
+												</button>
+											</div>
 										</div>
 									{/each}
 								</div>
@@ -6248,17 +6359,47 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 																? "Pemasukan"
 																: "Transaksi")}</span
 													>
-													<span
-														class="entry-amount {t.tipe ===
-														'pemasukan'
-															? 'color-income'
-															: 'color-expense'}"
-													>
-														{t.tipe === "pemasukan"
-															? "+"
-															: "-"}
-														{formatRupiah(t.total)}
-													</span>
+													<div class="entry-amount-cluster">
+														<span
+															class="entry-amount {t.tipe ===
+															'pemasukan'
+																? 'color-income'
+																: 'color-expense'}"
+														>
+															{t.tipe === "pemasukan"
+																? "+"
+																: "-"}
+															{formatRupiah(t.total)}
+														</span>
+														<button
+															type="button"
+															class="btn-row-edit"
+															title="Edit Transaksi"
+															aria-label="Edit Transaksi"
+															onclick={(e) => {
+																e.stopPropagation();
+																openEditTransaksi(t);
+															}}
+														>
+															<svg
+																width="12"
+																height="12"
+																viewBox="0 0 24 24"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="2.2"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															>
+																<path
+																	d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+																/>
+																<path
+																	d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+																/>
+															</svg>
+														</button>
+													</div>
 												</div>
 												<div class="entry-row-sub">
 													<span
@@ -6680,17 +6821,47 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 																? "Pemasukan"
 																: "Transaksi")}</span
 													>
-													<span
-														class="entry-amount {t.tipe ===
-														'pemasukan'
-															? 'color-income'
-															: 'color-expense'}"
-													>
-														{t.tipe === "pemasukan"
-															? "+"
-															: "-"}
-														{formatRupiah(t.total)}
-													</span>
+													<div class="entry-amount-cluster">
+														<span
+															class="entry-amount {t.tipe ===
+															'pemasukan'
+																? 'color-income'
+																: 'color-expense'}"
+														>
+															{t.tipe === "pemasukan"
+																? "+"
+																: "-"}
+															{formatRupiah(t.total)}
+														</span>
+														<button
+															type="button"
+															class="btn-row-edit"
+															title="Edit Transaksi"
+															aria-label="Edit Transaksi"
+															onclick={(e) => {
+																e.stopPropagation();
+																openEditTransaksi(t);
+															}}
+														>
+															<svg
+																width="12"
+																height="12"
+																viewBox="0 0 24 24"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="2.2"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															>
+																<path
+																	d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+																/>
+																<path
+																	d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+																/>
+															</svg>
+														</button>
+													</div>
 												</div>
 												<div class="entry-row-sub">
 													<span
@@ -6829,17 +7000,47 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 																? "Pemasukan"
 																: "Transaksi")}</span
 													>
-													<span
-														class="entry-amount {t.tipe ===
-														'pemasukan'
-															? 'color-income'
-															: 'color-expense'}"
-													>
-														{t.tipe === "pemasukan"
-															? "+"
-															: "-"}
-														{formatRupiah(t.total)}
-													</span>
+													<div class="entry-amount-cluster">
+														<span
+															class="entry-amount {t.tipe ===
+															'pemasukan'
+																? 'color-income'
+																: 'color-expense'}"
+														>
+															{t.tipe === "pemasukan"
+																? "+"
+																: "-"}
+															{formatRupiah(t.total)}
+														</span>
+														<button
+															type="button"
+															class="btn-row-edit"
+															title="Edit Transaksi"
+															aria-label="Edit Transaksi"
+															onclick={(e) => {
+																e.stopPropagation();
+																openEditTransaksi(t);
+															}}
+														>
+															<svg
+																width="12"
+																height="12"
+																viewBox="0 0 24 24"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="2.2"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															>
+																<path
+																	d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+																/>
+																<path
+																	d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+																/>
+															</svg>
+														</button>
+													</div>
 												</div>
 												<div class="entry-row-sub">
 													<span
@@ -7006,17 +7207,47 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 																? "Pemasukan"
 																: "Transaksi")}</span
 													>
-													<span
-														class="entry-amount {t.tipe ===
-														'pemasukan'
-															? 'color-income'
-															: 'color-expense'}"
-													>
-														{t.tipe === "pemasukan"
-															? "+"
-															: "-"}
-														{formatRupiah(t.total)}
-													</span>
+													<div class="entry-amount-cluster">
+														<span
+															class="entry-amount {t.tipe ===
+															'pemasukan'
+																? 'color-income'
+																: 'color-expense'}"
+														>
+															{t.tipe === "pemasukan"
+																? "+"
+																: "-"}
+															{formatRupiah(t.total)}
+														</span>
+														<button
+															type="button"
+															class="btn-row-edit"
+															title="Edit Transaksi"
+															aria-label="Edit Transaksi"
+															onclick={(e) => {
+																e.stopPropagation();
+																openEditTransaksi(t);
+															}}
+														>
+															<svg
+																width="12"
+																height="12"
+																viewBox="0 0 24 24"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="2.2"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															>
+																<path
+																	d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+																/>
+																<path
+																	d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+																/>
+															</svg>
+														</button>
+													</div>
 												</div>
 												<div class="entry-row-sub">
 													<span
@@ -7585,13 +7816,19 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 			</div>
 		{/if}
 
-		<!-- BOTTOM SHEET MODAL (MANUAL INPUT) -->
+		<!-- BOTTOM SHEET MODAL (MANUAL INPUT / EDIT) -->
 		{#if showModalTambah}
 			<div
 				class="bottom-sheet-backdrop"
-				onclick={() => (showModalTambah = false)}
+				onclick={() => {
+					showModalTambah = false;
+					resetForm();
+				}}
 				onkeydown={(e) => {
-					if (e.key === "Escape") showModalTambah = false;
+					if (e.key === "Escape") {
+						showModalTambah = false;
+						resetForm();
+					}
 				}}
 				role="presentation"
 			>
@@ -7605,11 +7842,18 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 					<div class="sheet-grabber-bar"></div>
 
 					<div class="sheet-header">
-						<h3 class="sheet-title">Catat Transaksi Manual</h3>
+						<h3 class="sheet-title">
+							{isEditingTransaksi
+								? "Edit Transaksi"
+								: "Catat Transaksi Manual"}
+						</h3>
 						<button
 							class="sheet-close-btn"
 							aria-label="Tutup"
-							onclick={() => (showModalTambah = false)}
+							onclick={() => {
+								showModalTambah = false;
+								resetForm();
+							}}
 						>
 							<svg
 								width="16"
@@ -7856,15 +8100,21 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 					<div class="sheet-sticky-footer">
 						<button
 							class="btn-sheet-cancel"
-							onclick={() => (showModalTambah = false)}
-							>Batal</button
+							onclick={() => {
+								showModalTambah = false;
+								resetForm();
+							}}>Batal</button
 						>
 						<button
 							class="btn-sheet-submit"
 							onclick={simpanTransaksi}
 							disabled={loading}
 						>
-							{loading ? "Menyimpan..." : "Simpan Transaksi"}
+							{loading
+								? "Menyimpan..."
+								: isEditingTransaksi
+									? "Simpan Perubahan"
+									: "Simpan Transaksi"}
 						</button>
 					</div>
 				</div>
@@ -8107,6 +8357,29 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 									/><line x1="14" y1="11" x2="14" y2="17" />
 								</svg>
 								<span>Hapus</span>
+							</button>
+							<button
+								class="btn-sheet-edit"
+								onclick={() => openEditTransaksi(detailData)}
+							>
+								<svg
+									width="14"
+									height="14"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<path
+										d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+									/>
+									<path
+										d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+									/>
+								</svg>
+								<span>Edit Transaksi</span>
 							</button>
 							<button
 								class="btn-sheet-submit"
@@ -12279,6 +12552,41 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		white-space: nowrap;
 		flex-shrink: 0;
 	}
+	.entry-amount-cluster {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		flex-shrink: 0;
+	}
+	.ctx-amount-cluster {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		flex-shrink: 0;
+	}
+	.btn-row-edit {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 26px;
+		height: 26px;
+		border-radius: 6px;
+		background: #f1ede6;
+		border: 1px solid #ded6c9;
+		color: #554d42;
+		cursor: pointer;
+		padding: 0;
+		transition: all 0.15s ease;
+	}
+	.btn-row-edit:hover {
+		background: #e0f2fe;
+		border-color: #7dd3fc;
+		color: #0284c7;
+		transform: scale(1.05);
+	}
+	.btn-row-edit:active {
+		transform: scale(0.95);
+	}
 	.entry-row-sub {
 		font-size: 0.68rem;
 		color: #7c746a;
@@ -13010,6 +13318,29 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		display: flex;
 		align-items: center;
 		gap: 0.35rem;
+	}
+	.btn-sheet-edit {
+		flex: 1.5;
+		background: #eff6ff;
+		color: #1d4ed8;
+		border: 1px solid #bfdbfe;
+		font-weight: 700;
+		padding: 0.65rem 0.85rem;
+		border-radius: 8px;
+		font-size: 0.82rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.35rem;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+	.btn-sheet-edit:hover {
+		background: #dbeafe;
+		border-color: #93c5fd;
+	}
+	.btn-sheet-edit:active {
+		transform: scale(0.98);
 	}
 
 	/* DETAIL BOTTOM SHEET */

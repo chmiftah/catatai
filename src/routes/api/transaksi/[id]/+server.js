@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db.js';
 import { getAuthUser } from '#lib/server/auth.js';
-import { decryptTransaction, decryptItem } from '#lib/server/crypto.js';
+import { decryptTransaction, decryptItem, encrypt } from '#lib/server/crypto.js';
 
 export async function GET({ params, cookies }) {
 	try {
@@ -58,8 +58,8 @@ export async function PUT({ params, request, cookies }) {
 		let {
 			tipe = 'pengeluaran',
 			toko = '',
-			tanggal = new Date().toISOString().slice(0, 10),
-			waktu = new Date().toTimeString().slice(0, 8),
+			tanggal = '',
+			waktu = '',
 			kategori = 'Lainnya',
 			metode_bayar = 'Tunai',
 			dompet = '',
@@ -82,25 +82,35 @@ export async function PUT({ params, request, cookies }) {
 			if (foundD) dompet_id = foundD.id;
 		}
 
-		const grandTotal = total > 0 ? total : Math.max(0, Number(subtotal) + Number(pajak) - Number(diskon));
-		const { encrypt } = await import('#lib/server/crypto.js');
-		const encToko = encrypt(toko);
-		const encCatatan = encrypt(catatan);
+		const safeTanggal = (tanggal && typeof tanggal === 'string' && tanggal.trim()) 
+			? tanggal.trim().slice(0, 10) 
+			: new Date().toISOString().slice(0, 10);
+		const safeWaktu = (waktu && typeof waktu === 'string' && waktu.trim()) 
+			? waktu.trim().slice(0, 8) 
+			: new Date().toTimeString().slice(0, 8);
+
+		const numSubtotal = Number(subtotal) || 0;
+		const numPajak = Number(pajak) || 0;
+		const numDiskon = Number(diskon) || 0;
+		const grandTotal = Number(total) > 0 ? Number(total) : Math.max(0, numSubtotal + numPajak - numDiskon);
+
+		const encToko = encrypt(toko || '');
+		const encCatatan = encrypt(catatan || '');
 		const encGambarUrl = gambar_url ? encrypt(gambar_url) : null;
 
 		const [updated] = await sql`
 			UPDATE transaksi
 			SET tipe = ${tipe},
 			    toko = ${encToko},
-			    tanggal = ${tanggal}::date,
-			    waktu = ${waktu}::time,
+			    tanggal = ${safeTanggal}::date,
+			    waktu = ${safeWaktu}::time,
 			    kategori = ${kategori},
 			    metode_bayar = ${metode_bayar},
 			    dompet = ${dompet},
 			    dompet_id = ${dompet_id || null},
-			    subtotal = ${subtotal},
-			    pajak = ${pajak},
-			    diskon = ${diskon},
+			    subtotal = ${numSubtotal},
+			    pajak = ${numPajak},
+			    diskon = ${numDiskon},
 			    total = ${grandTotal},
 			    gambar_url = ${encGambarUrl},
 			    catatan = ${encCatatan}
