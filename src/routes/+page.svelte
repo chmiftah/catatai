@@ -202,6 +202,7 @@
 	let chatLoading = $state(false);
 	let chatMessagesContainer = $state(null);
 	let currentActiveDraft = $state(null);
+	let currentActiveSplit = $state(null);
 	let showUpgradeModal = $state(false);
 	let upgradeLoading = $state(false);
 
@@ -513,6 +514,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		} catch {}
 		chatMessages = [];
 		currentActiveDraft = null;
+		currentActiveSplit = null;
 		initChatMessages();
 	}
 
@@ -1418,6 +1420,7 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 					image: image,
 					history: historyPayload,
 					currentDraft: currentActiveDraft,
+					currentSplitData: currentActiveSplit,
 				}),
 			});
 
@@ -1455,6 +1458,97 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 						time: botTime,
 					},
 				];
+			} else if (data.aksi === "tanya_split" && data.split_data) {
+				currentActiveSplit = data.split_data;
+				chatMessages = [
+					...chatMessages,
+					{
+						id: Date.now() + 1,
+						role: "assistant",
+						content: data.jawaban_teks,
+						splitData: data.split_data,
+						splitStatus: "pending",
+						time: botTime,
+					},
+				];
+			} else if (data.aksi === "edit_transaksi") {
+				currentActiveDraft = null;
+				const editedDraft = data.transaksi
+					? { ...data.transaksi, status: "edited" }
+					: null;
+				chatMessages = [
+					...chatMessages,
+					{
+						id: Date.now() + 1,
+						role: "assistant",
+						content: data.jawaban_teks,
+						savedId: data.savedId,
+						draft: editedDraft,
+						time: botTime,
+					},
+				];
+				saveChatHistory();
+				await loadData();
+				successMsg = "Transaksi berhasil diperbarui!";
+				setTimeout(() => {
+					successMsg = "";
+				}, 3500);
+			} else if (
+				data.aksi === "selesai_split_gabung" ||
+				data.aksi === "pilih_split_gabung"
+			) {
+				currentActiveSplit = null;
+				chatMessages = chatMessages.map((m) => {
+					if (m.splitData && m.splitStatus === "pending") {
+						return { ...m, splitStatus: "gabung" };
+					}
+					return m;
+				});
+				chatMessages = [
+					...chatMessages,
+					{
+						id: Date.now() + 1,
+						role: "assistant",
+						content: data.jawaban_teks,
+						savedId: data.savedId,
+						draft: data.transaksi
+							? { ...data.transaksi, status: "saved" }
+							: null,
+						time: botTime,
+					},
+				];
+				saveChatHistory();
+				await loadData();
+				successMsg = "Transaksi gabungan berhasil disimpan!";
+				setTimeout(() => {
+					successMsg = "";
+				}, 3500);
+			} else if (
+				data.aksi === "selesai_split_pisah" ||
+				data.aksi === "pilih_split_pisah"
+			) {
+				currentActiveSplit = null;
+				chatMessages = chatMessages.map((m) => {
+					if (m.splitData && m.splitStatus === "pending") {
+						return { ...m, splitStatus: "pisah" };
+					}
+					return m;
+				});
+				chatMessages = [
+					...chatMessages,
+					{
+						id: Date.now() + 1,
+						role: "assistant",
+						content: data.jawaban_teks,
+						time: botTime,
+					},
+				];
+				saveChatHistory();
+				await loadData();
+				successMsg = "Transaksi berhasil dicatat terpisah!";
+				setTimeout(() => {
+					successMsg = "";
+				}, 3500);
 			} else if (data.aksi === "konfirmasi_simpan") {
 				chatMessages = chatMessages.map((m) => {
 					if (m.draft && m.draft.status === "pending") {
@@ -1488,9 +1582,16 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 							draft: { ...m.draft, status: "cancelled" },
 						};
 					}
+					if (m.splitData && m.splitStatus === "pending") {
+						return {
+							...m,
+							splitStatus: "cancelled",
+						};
+					}
 					return m;
 				});
 				currentActiveDraft = null;
+				currentActiveSplit = null;
 				chatMessages = [
 					...chatMessages,
 					{
@@ -1548,6 +1649,70 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 				role: "assistant",
 				content: "Draft transaksi telah dibatalkan.",
 				time: `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`,
+			},
+		];
+		saveChatHistory();
+		scrollToBottom();
+	}
+
+	async function executeSplitChoice(targetMsg, choice) {
+		if (!targetMsg.splitData) return;
+		chatLoading = true;
+		try {
+			const res = await fetch("/api/chat-catat", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					splitAction: choice,
+					splitData: targetMsg.splitData,
+				}),
+			});
+			const data = await res.json();
+			if (!res.ok)
+				throw new Error(data.error || "Gagal memproses pilihan transaksi");
+
+			targetMsg.splitStatus = choice;
+			currentActiveSplit = null;
+			const botTime = `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
+
+			chatMessages = [
+				...chatMessages,
+				{
+					id: Date.now() + 1,
+					role: "assistant",
+					content: data.jawaban_teks,
+					savedId: data.savedId,
+					time: botTime,
+				},
+			];
+			saveChatHistory();
+			await loadData();
+			successMsg =
+				choice === "gabung"
+					? "1 Transaksi gabungan berhasil disimpan!"
+					: `${targetMsg.splitData.terpisah?.length || "Beberapa"} transaksi terpisah berhasil disimpan!`;
+			setTimeout(() => {
+				successMsg = "";
+			}, 3500);
+		} catch (e) {
+			alert(e.message);
+		} finally {
+			chatLoading = false;
+			scrollToBottom();
+		}
+	}
+
+	function cancelSplitChoice(targetMsg) {
+		targetMsg.splitStatus = "cancelled";
+		currentActiveSplit = null;
+		const botTime = `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
+		chatMessages = [
+			...chatMessages,
+			{
+				id: Date.now() + 1,
+				role: "assistant",
+				content: "Pilihan transaksi dibatalkan.",
+				time: botTime,
 			},
 		];
 		saveChatHistory();
@@ -4231,6 +4396,32 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 															Disimpan</span
 														>
 													</div>
+												{:else if msg.draft.status === "edited"}
+													<div
+														class="draft-status-pill pill-edited"
+													>
+														<svg
+															width="15"
+															height="15"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="2.2"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														>
+															<path
+																d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+															/>
+															<path
+																d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+															/>
+														</svg>
+														<span
+															>Transaksi Berhasil
+															Diperbarui</span
+														>
+													</div>
 												{:else if msg.draft.status === "cancelled"}
 													<div
 														class="draft-status-pill pill-cancelled"
@@ -4374,8 +4565,273 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 											</div>
 										{/if}
 
+										<!-- KARTU PILIHAN BANYAK TRANSAKSI (SPLIT TRANSAKSI) -->
+										{#if msg.splitData}
+											<div class="tx-split-box">
+												<div class="split-topline">
+													<div
+														class="split-badge-title-row"
+													>
+														<span
+															class="split-badge-icon"
+															>📋</span
+														>
+														<span
+															class="split-head-title"
+														>
+															{msg.splitData
+																.jumlah_transaksi ||
+																msg.splitData
+																	.terpisah
+																	?.length ||
+																2} Transaksi Terdeteksi
+														</span>
+													</div>
+													<span
+														class="split-tot-badge"
+													>
+														Total: {formatRupiah(
+															msg.splitData
+																.total_keseluruhan ||
+																msg.splitData
+																	.gabungan
+																	?.total,
+														)}
+													</span>
+												</div>
+
+												<div class="split-list-wrap">
+													{#each msg.splitData.terpisah || [] as itm, idx}
+														<div
+															class="split-row-line"
+														>
+															<span class="s-num"
+																>{idx + 1}.</span
+															>
+															<span class="s-name"
+																>{itm.toko ||
+																	itm
+																		.items?.[0]
+																		?.nama_barang ||
+																	"Transaksi"}</span
+															>
+															<span class="s-amt"
+																>{formatRupiah(
+																	itm.total,
+																)}</span
+															>
+														</div>
+													{/each}
+												</div>
+
+												{#if msg.splitStatus === "gabung"}
+													<div
+														class="draft-status-pill pill-saved"
+													>
+														<svg
+															width="15"
+															height="15"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="2.5"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														>
+															<path
+																d="M22 11.08V12a10 10 0 1 1-5.93-9.14"
+															/>
+															<polyline
+																points="22 4 12 14.01 9 11.01"
+															/>
+														</svg>
+														<span
+															>Telah Dicatat
+															Sebagai 1 Transaksi
+															Gabungan</span
+														>
+													</div>
+												{:else if msg.splitStatus === "pisah"}
+													<div
+														class="draft-status-pill pill-saved"
+													>
+														<svg
+															width="15"
+															height="15"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="2.5"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														>
+															<path
+																d="M22 11.08V12a10 10 0 1 1-5.93-9.14"
+															/>
+															<polyline
+																points="22 4 12 14.01 9 11.01"
+															/>
+														</svg>
+														<span
+															>Telah Dicatat
+															Terpisah ({msg
+																.splitData
+																.terpisah
+																?.length} Transaksi)</span
+														>
+													</div>
+												{:else if msg.splitStatus === "cancelled"}
+													<div
+														class="draft-status-pill pill-cancelled"
+													>
+														<svg
+															width="15"
+															height="15"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="2.5"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														>
+															<circle
+																cx="12"
+																cy="12"
+																r="10"
+															/><line
+																x1="15"
+																y1="9"
+																x2="9"
+																y2="15"
+															/><line
+																x1="9"
+																y1="9"
+																x2="15"
+																y2="15"
+															/>
+														</svg>
+														<span
+															>Pilihan Transaksi
+															Dibatalkan</span
+														>
+													</div>
+												{:else}
+													<div
+														class="split-action-block"
+													>
+														<span
+															class="split-action-title"
+															>Mau dicatat jadi 1
+															transaksi gabungan
+															atau dipisah?</span
+														>
+														<div
+															class="split-buttons-cluster"
+														>
+															<button
+																type="button"
+																class="btn-split-gabung"
+																onclick={() =>
+																	executeSplitChoice(
+																		msg,
+																		"gabung",
+																	)}
+																disabled={chatLoading}
+															>
+																<span
+																	class="btn-split-icon"
+																	>📁</span
+																>
+																<div
+																	class="btn-split-text-wrap"
+																>
+																	<span
+																		class="btn-split-main"
+																		>Jadikan
+																		1
+																		Transaksi
+																		Gabungan</span
+																	>
+																	<span
+																		class="btn-split-sub"
+																		>Total {formatRupiah(
+																			msg
+																				.splitData
+																				.gabungan
+																				?.total ||
+																				msg
+																					.splitData
+																					.total_keseluruhan,
+																		)}
+																		(rincian
+																		per
+																		item)</span
+																	>
+																</div>
+															</button>
+
+															<button
+																type="button"
+																class="btn-split-pisah"
+																onclick={() =>
+																	executeSplitChoice(
+																		msg,
+																		"pisah",
+																	)}
+																disabled={chatLoading}
+															>
+																<span
+																	class="btn-split-icon"
+																	>✂️</span
+																>
+																<div
+																	class="btn-split-text-wrap"
+																>
+																	<span
+																		class="btn-split-main"
+																		>Pisahkan
+																		Jadi {msg
+																			.splitData
+																			.terpisah
+																			?.length ||
+																			2}
+																		Transaksi</span
+																	>
+																	<span
+																		class="btn-split-sub"
+																		>Masing-masing
+																		tercatat
+																		sebagai
+																		transaksi
+																		tersendiri</span
+																	>
+																</div>
+															</button>
+
+															<button
+																type="button"
+																class="btn-split-cancel"
+																onclick={() =>
+																	cancelSplitChoice(
+																		msg,
+																	)}
+																disabled={chatLoading}
+															>
+																Batal
+															</button>
+														</div>
+													</div>
+												{/if}
+											</div>
+										{/if}
+
 										{#if msg.savedId}
-											<div class="msg-saved-banner">
+											<div
+												class="msg-saved-banner {msg
+													.draft?.status === 'edited'
+													? 'banner-edited'
+													: ''}"
+											>
 												<div class="saved-banner-left">
 													<svg
 														width="14"
@@ -4386,14 +4842,27 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 														stroke-width="2"
 														stroke-linecap="round"
 														stroke-linejoin="round"
-														><path
-															d="M22 11.08V12a10 10 0 1 1-5.93-9.14"
-														/><polyline
-															points="22 4 12 14.01 9 11.01"
-														/></svg
 													>
+														{#if msg.draft?.status === "edited"}
+															<path
+																d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+															/>
+															<path
+																d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+															/>
+														{:else}
+															<path
+																d="M22 11.08V12a10 10 0 1 1-5.93-9.14"
+															/><polyline
+																points="22 4 12 14.01 9 11.01"
+															/>
+														{/if}
+													</svg>
 													<span
-														>Tersimpan ke database!</span
+														>{msg.draft?.status ===
+														"edited"
+															? "Transaksi berhasil diperbarui!"
+															: "Tersimpan ke database!"}</span
 													>
 												</div>
 												<button
@@ -11566,6 +12035,11 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		border: 1px solid #a7f3d0;
 		color: #047857;
 	}
+	.pill-edited {
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		color: #1d4ed8;
+	}
 	.pill-cancelled {
 		background: #f4eee4;
 		border: 1px solid #e5ded2;
@@ -11584,6 +12058,15 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		justify-content: space-between;
 		font-size: 0.78rem;
 	}
+	.msg-saved-banner.banner-edited {
+		background: #eff6ff;
+		border-color: #bfdbfe;
+		color: #1d4ed8;
+	}
+	.msg-saved-banner.banner-edited .btn-detail-link {
+		border-color: #bfdbfe;
+		color: #1d4ed8;
+	}
 	.saved-banner-left {
 		display: flex;
 		align-items: center;
@@ -11597,6 +12080,170 @@ Atau tekan ikon kamera di bawah untuk mengirim foto nota/struk belanja 📸`,
 		padding: 0.18rem 0.5rem;
 		border-radius: 5px;
 		font-size: 0.7rem;
+	}
+
+	/* KARTU SPLIT TRANSAKSI */
+	.tx-split-box {
+		margin-top: 0.65rem;
+		background: #ffffff;
+		border: 1px solid #e2d9cd;
+		border-radius: 12px;
+		padding: 0.75rem 0.85rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.55rem;
+		box-shadow: 0 3px 10px rgba(35, 31, 28, 0.04);
+	}
+	.split-topline {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		padding-bottom: 0.45rem;
+		border-bottom: 1px solid #f0ebe1;
+	}
+	.split-badge-title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+	.split-badge-icon {
+		font-size: 1.15rem;
+	}
+	.split-head-title {
+		font-size: 0.82rem;
+		font-weight: 700;
+		color: #231f1c;
+	}
+	.split-tot-badge {
+		font-size: 0.75rem;
+		font-weight: 800;
+		color: #059669;
+		background: #ecfdf5;
+		padding: 0.2rem 0.45rem;
+		border-radius: 6px;
+		border: 1px solid #a7f3d0;
+	}
+	.split-list-wrap {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		background: #faf7f2;
+		border: 1px solid #eee7db;
+		border-radius: 8px;
+		padding: 0.5rem 0.65rem;
+	}
+	.split-row-line {
+		display: flex;
+		align-items: center;
+		font-size: 0.78rem;
+		color: #38322b;
+	}
+	.s-num {
+		width: 18px;
+		font-weight: 700;
+		color: #8c8273;
+		font-size: 0.75rem;
+	}
+	.s-name {
+		flex: 1;
+		font-weight: 600;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.s-amt {
+		font-weight: 700;
+		font-family: 'Outfit', sans-serif;
+		color: #231f1c;
+	}
+	.split-action-block {
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+		margin-top: 0.2rem;
+	}
+	.split-action-title {
+		font-size: 0.76rem;
+		font-weight: 600;
+		color: #554d42;
+	}
+	.split-buttons-cluster {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+	.btn-split-gabung {
+		background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+		color: #ffffff;
+		border: none;
+		border-radius: 9px;
+		padding: 0.6rem 0.75rem;
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		cursor: pointer;
+		text-align: left;
+		transition: transform 0.1s, box-shadow 0.15s;
+		box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2);
+	}
+	.btn-split-gabung:hover {
+		box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
+	}
+	.btn-split-gabung:active {
+		transform: scale(0.98);
+	}
+	.btn-split-pisah {
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: #ffffff;
+		border: none;
+		border-radius: 9px;
+		padding: 0.6rem 0.75rem;
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		cursor: pointer;
+		text-align: left;
+		transition: transform 0.1s, box-shadow 0.15s;
+		box-shadow: 0 2px 6px rgba(16, 185, 129, 0.2);
+	}
+	.btn-split-pisah:hover {
+		box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+	}
+	.btn-split-pisah:active {
+		transform: scale(0.98);
+	}
+	.btn-split-icon {
+		font-size: 1.25rem;
+		flex-shrink: 0;
+	}
+	.btn-split-text-wrap {
+		display: flex;
+		flex-direction: column;
+	}
+	.btn-split-main {
+		font-size: 0.82rem;
+		font-weight: 700;
+		line-height: 1.2;
+	}
+	.btn-split-sub {
+		font-size: 0.68rem;
+		opacity: 0.9;
+		margin-top: 0.1rem;
+	}
+	.btn-split-cancel {
+		background: #faf7f2;
+		border: 1px solid #ded5c8;
+		color: #7c746a;
+		font-size: 0.76rem;
+		font-weight: 600;
+		padding: 0.45rem;
+		border-radius: 7px;
+		cursor: pointer;
+		text-align: center;
+	}
+	.btn-split-cancel:active {
+		background: #f0ebe1;
 	}
 
 	.msg-loading-card {
